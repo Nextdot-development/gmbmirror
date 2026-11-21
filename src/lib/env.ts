@@ -12,6 +12,11 @@ export function configProblems(e: NodeJS.ProcessEnv = process.env): string[] {
     return out;
   }
   if (mode === "demo") {
+    // Vercel (and other serverless hosts) do not keep written files: demo accounts and data would vanish. No override.
+    if (e.VERCEL === "1" || e.VERCEL_ENV) {
+      out.push("APP_MODE=demo cannot run on Vercel: it stores accounts and data in local files, which Vercel does not keep. Set APP_MODE=supabase.");
+      return out;
+    }
     if (e.NODE_ENV === "production" && e.ALLOW_DEMO_IN_PRODUCTION !== "true") {
       out.push('APP_MODE=demo stores accounts in local files and is for testing only. Use APP_MODE=supabase, or set ALLOW_DEMO_IN_PRODUCTION=true to run a production build in demo mode on your own machine.');
     }
@@ -20,7 +25,12 @@ export function configProblems(e: NodeJS.ProcessEnv = process.env): string[] {
   if ((e.SESSION_SECRET ?? "").length < 32) out.push("SESSION_SECRET must be at least 32 characters. Generate one with: openssl rand -hex 32");
   if (mode === "supabase") {
     if (!e.NEXT_PUBLIC_SUPABASE_URL) out.push("NEXT_PUBLIC_SUPABASE_URL is required when APP_MODE=supabase.");
-    if (!e.NEXT_PUBLIC_SUPABASE_ANON_KEY) out.push("NEXT_PUBLIC_SUPABASE_ANON_KEY is required when APP_MODE=supabase.");
+    if (!e.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY && !e.NEXT_PUBLIC_SUPABASE_ANON_KEY) out.push("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (or the legacy NEXT_PUBLIC_SUPABASE_ANON_KEY) is required when APP_MODE=supabase.");
+    // App data is stored from the server through PostgreSQL (the Supabase connection pooler).
+    if (!e.DATABASE_URL) out.push("DATABASE_URL is required when APP_MODE=supabase: the Supabase transaction pooler connection string (Supabase dashboard > Connect > Transaction pooler, port 6543).");
+    else if (!/^postgres(ql)?:\/\//.test(e.DATABASE_URL)) out.push("DATABASE_URL must start with postgresql:// (the Supabase connection string).");
+    else if (/\[YOUR-PASSWORD\]/i.test(e.DATABASE_URL)) out.push("DATABASE_URL still contains [YOUR-PASSWORD]. Run npm run db:setup to enter the password safely.");
+    else if (/@db\.[a-z0-9]+\.supabase\.co[:/]/i.test(e.DATABASE_URL)) out.push("DATABASE_URL is Supabase's direct connection, which does not work from Vercel (IPv6 only). Use the Transaction pooler string (port 6543): run npm run db:setup.");
   }
   // Rate limits key on the client address, which can only be read safely when we know how many proxies we control.
   const hops = e.TRUSTED_PROXY_HOPS?.trim();

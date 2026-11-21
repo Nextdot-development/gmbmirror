@@ -7,3 +7,9 @@ next-env.d.ts
 *.tsbuildinfo
 playwright-report
 test-results
+# Never commit secrets: every env file except the documented example, Vercel's local link folder, keys and certificates.
+.env*
+!.env.example
+.vercel
+*.pem
+*.key

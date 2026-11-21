@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { supabaseCookieOptions } from "@/lib/supabase-cookies";
+import { supabaseCookieOptions, supabasePublicKey } from "@/lib/supabase-cookies";
 
 /**
  * Keeps Supabase sessions alive. Server Components cannot write cookies, so a session refreshed while
@@ -11,7 +11,7 @@ import { supabaseCookieOptions } from "@/lib/supabase-cookies";
  */
 export async function proxy(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const key = supabasePublicKey();
   if (process.env.APP_MODE !== "supabase" || !url || !key) return NextResponse.next();
 
   let response = NextResponse.next({ request });
@@ -31,5 +31,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/app/:path*", "/login", "/signup", "/api/google/:path*"],
+  matcher: ["/app/:path*", "/login", "/signup", "/forgot-password", "/reset-password", "/auth/:path*", "/api/google/:path*"],
 };

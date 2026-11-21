@@ -116,7 +116,16 @@ export const readData = (): Store => {
   const file = path.join(DATA_DIR, "user_data.json");
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
 };
-export const writeData = (d: Store) => fs.writeFileSync(path.join(DATA_DIR, "user_data.json"), JSON.stringify(d));
+/**
+ * Replaces the test server's data file atomically (a temporary file, then a rename), as the app itself writes it.
+ * Writing in place let the server read half a file now and then, which it rightly reports as damaged data.
+ */
+export const writeData = (d: Store) => {
+  const file = path.join(DATA_DIR, "user_data.json");
+  const tmp = `${file}.${process.pid}.${Date.now()}.test.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(d));
+  fs.renameSync(tmp, file);
+};
 const userId = (email: string): string => JSON.parse(fs.readFileSync(path.join(DATA_DIR, "users.json"), "utf8"))[email].id;
 
 /** Click a button that submits a server action and wait for the server to answer. */

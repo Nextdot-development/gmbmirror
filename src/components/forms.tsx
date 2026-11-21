@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useActionState, useEffect, useRef, useState } from "react";
 import {
-  addGoogleLocationAction, removeLocationAction, addInsightAction, chooseLocationAction, createReportAction, explainCompetitorsAction, explainInsightsAction, deleteInsightAction, editInsightAction, editPostAction, logInAction, postComposerAction, refreshFromGoogleAction, refreshInsightsAction,
+  addGoogleLocationAction, removeLocationAction, requestPasswordResetAction, setNewPasswordAction, addInsightAction, chooseLocationAction, createReportAction, explainCompetitorsAction, explainInsightsAction, deleteInsightAction, editInsightAction, editPostAction, logInAction, postComposerAction, refreshFromGoogleAction, refreshInsightsAction,
   replyAction, runVisibilityAction, saveAiPreferencesAction, saveAutomationAction, saveBusinessAction, saveGuideNotesAction, signUpAction, type FormState,
 } from "@/app/actions";
 import { Field, Msg, SubmitButton } from "./ui";
@@ -23,11 +23,38 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
         autoComplete={mode === "login" ? "current-password" : "new-password"}
         hint={mode === "signup" ? "At least 8 characters." : undefined} error={s.fieldErrors?.password}
       />
+      {mode === "login" ? <p className="caption-2 -mt-2"><Link href="/forgot-password" className="text-brand underline underline-offset-2">Forgot your password?</Link></p> : null}
       <Msg state={s} />
       <SubmitButton pending={mode === "login" ? "Logging in" : "Creating account"}>{mode === "login" ? "Log in" : "Create account"}</SubmitButton>
       <p className="caption-2 text-muted">
         {mode === "login" ? <>New here? <Link href="/signup" className="underline">Create an account</Link></> : <>Already have an account? <Link href="/login" className="underline">Log in</Link></>}
       </p>
+    </form>
+  );
+}
+
+/** "Forgot password": asks for the email; the answer is the same whether or not an account exists. */
+export function ForgotPasswordForm() {
+  const [s, action] = useActionState(requestPasswordResetAction, init);
+  return (
+    <form action={action} className="flex flex-col gap-4" key={JSON.stringify(s.values ?? {})}>
+      <Field label="Email" name="email" type="email" autoComplete="email" required defaultValue={s.values?.email} error={s.fieldErrors?.email} />
+      <Msg state={s} />
+      <SubmitButton pending="Sending">Send reset link</SubmitButton>
+      <p className="caption-2 text-muted">Remembered it? <Link href="/login" className="underline">Log in</Link></p>
+    </form>
+  );
+}
+
+/** After the reset link: the new password, twice. */
+export function NewPasswordForm() {
+  const [s, action] = useActionState(setNewPasswordAction, init);
+  return (
+    <form action={action} className="flex flex-col gap-4">
+      <Field label="New password" name="password" type="password" autoComplete="new-password" required hint="At least 8 characters." error={s.fieldErrors?.password} />
+      <Field label="New password again" name="confirm" type="password" autoComplete="new-password" required error={s.fieldErrors?.confirm} idPrefix="c" />
+      <Msg state={s} />
+      <SubmitButton pending="Saving">Save new password</SubmitButton>
     </form>
   );
 }

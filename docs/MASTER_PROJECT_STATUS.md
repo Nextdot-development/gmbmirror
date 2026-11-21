@@ -1,6 +1,6 @@
 # GMBmirror (formerly GMB Growth Engine): Master Project Status
 
-Updated: 21 November 2026, after the rename to GMBmirror (section 0M). The final pre-OAuth completion is 0L. The intelligence and automation upgrade is 0K. The onboarding redesign is 0J; the stabilization pass is 0I. The Google Business Profile integration is 0H. The pre-OAuth verification is 0G. The business finder is 0F; the growth engine is 0E. The full current-state audit is `docs/COMPLETE_PROJECT_AUDIT.md`.
+Updated: 21 November 2026, after the Supabase and Vercel preparation (section 0N, with docs/DEPLOYMENT.md). The rename to GMBmirror is 0M. The final pre-OAuth completion is 0L. The intelligence and automation upgrade is 0K. The onboarding redesign is 0J; the stabilization pass is 0I. The Google Business Profile integration is 0H. The pre-OAuth verification is 0G. The business finder is 0F; the growth engine is 0E. The full current-state audit is `docs/COMPLETE_PROJECT_AUDIT.md`.
 
 This file replaces the two working notes "Current Features" and "Pending Features". Every status below was checked against the code in `src/` and against the tests actually run. Nothing was implemented while writing it.
 
@@ -24,6 +24,21 @@ This file replaces the two working notes "Current Features" and "Pending Feature
 - `npm run test:e2e` runs **212** Playwright browser tests: desktop 122, mobile 86, tablet 4, none skipped.
 
 Rows marked "Playwright" or "Tested, browser (Phase 1)" are protected by those tests. Other "Tested, browser" rows were clicked through on the date shown.
+---
+
+## 0N. Supabase storage and Vercel preparation (21 November 2026)
+
+Full details: `docs/DEPLOYMENT.md`. **Not deployed; not production ready** until it runs on a real Supabase project and Vercel.
+
+- **Supabase mode now stores all app data in PostgreSQL from the server** (`src/lib/db-pg.ts`, `DATABASE_URL`), replacing the earlier single `user_data` table read with the user's Supabase session. Schema: `supabase/migrations/20261121000000_gmbmirror_core.sql` (accounts, locations, location records, Google connections, user records, jobs, rate limits, migration runs; RLS on every table, no browser access to tokens, jobs or limits).
+- **Jobs on Vercel:** database queue (`src/lib/jobs-pg.ts`) with `claim_next_job` (SKIP LOCKED, leases, lease tokens); `/api/jobs/run` accepts GET (Vercel Cron) and POST, `maxDuration = 300`, 240-second budget. No in-memory state.
+- **Shared rate limits** in Supabase mode (`takeShared`, `peekShared`, `refundShared`, `clearShared`); demo mode keeps memory.
+- **Report PDF fonts** added to the route's file trace for serverless deployment.
+- **Startup check:** `DATABASE_URL` is required in Supabase mode. `SUPABASE_SERVICE_ROLE_KEY` is not used.
+- **Migration script:** `scripts/migrate-to-supabase.mjs` (dry run by default, read-only source, no duplicates, per-user checked transactions, batch rollback; JSON files or the old `user_data` table).
+- **"Add a Google location"** now adds the location to the list before saving its data (needed by the database's foreign keys; harmless in demo mode).
+- **Tests:** `npm run test:db` (17 tests against a throwaway local PostgreSQL). Demo mode unchanged: unit and browser suites still pass.
+
 ---
 
 ## 0M. Rename to GMBmirror (21 November 2026)

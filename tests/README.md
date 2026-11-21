@@ -106,3 +106,8 @@ Not covered automatically: anything needing real Google, Supabase or AI keys. Th
 - Run `npm run test:e2e:report`.
 - Each failure has a screenshot and a trace in `test-results/`. Open a trace with `npx playwright show-trace <file>`.
 - The test server's output is printed with a `[WebServer]` prefix.
+
+## Database tests (`npm run test:db`)
+
+`tests/db/*.test.ts` run the Supabase-mode storage, job queue, shared rate limits and the migration script against a **throwaway local PostgreSQL** (PostgreSQL 15+ `initdb` and `pg_ctl` must be installed; the tests fail with a clear message if they are not, and are never skipped). Each file creates a cluster in a temporary folder on a free port, applies `tests/db/supabase-stub.sql` (a test-only stand-in for Supabase's `auth` schema and roles) and `supabase/migrations/*.sql`, and deletes it afterwards. No remote database, `.env` or `.data` is used. Separate Node processes stand in for separate server instances and for restarts.
+

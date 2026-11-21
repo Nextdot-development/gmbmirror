@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
-import { logIn, logOut, signUp } from "@/lib/session";
+import { logIn, logOut, requestPasswordReset, requireUser, setNewPassword, signUp } from "@/lib/session";
 import { requireScope } from "@/lib/ctx";
 import { db, type Scope } from "@/lib/store";
 import { aiGrowthRecommendations, draftActionContent, draftPost, draftPostVariants, draftReply, explainCompetitors, explainInsights, METHODOLOGY, runVisibility, visibilityFixes, type ReplyVariant } from "@/lib/ai";
@@ -18,7 +18,7 @@ import { REPLY_MAX_BYTES, updateReply } from "@/lib/gbp-api";
 import { publishPost, scheduleKey, schedulePrefix } from "@/lib/post-publish";
 import { cancelJobs, cancelLocationJobs, cancelMatching, enqueue } from "@/lib/jobs";
 import { env } from "@/lib/env";
-import { clear, clientIp, LIMITS, peek, refund, take, waitMessage } from "@/lib/ratelimit";
+import { clearShared, clientIp, LIMITS, peekShared, refundShared, takeShared, waitMessage } from "@/lib/ratelimit";
 import { recognisedDevice, rememberDevice } from "@/lib/device";
 import { AUDIT_ITEMS, CATEGORIES, categoryInfo, CHATGPT_PREPARE } from "@/lib/business";
 import { defaultCategory, forgetGoogleValues } from "@/lib/business-sync";
@@ -90,7 +90,7 @@ function fieldErrors(err: z.ZodError): Record<string, string> {
 export async function signUpAction(_: FormState, fd: FormData): Promise<FormState> {
   const parsed = z.object({ email: emailSchema, password: passwordSchema }).safeParse({ email: fd.get("email"), password: fd.get("password") });
   if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error), values: vals(fd) };
-  const rl = take(`signup:ip:${await clientIp()}`, LIMITS.signupPerIp);
+  const rl = await takeShared(`signup:ip:${await clientIp()}`, LIMITS.signupPerIp);
   if (!rl.ok) return { error: waitMessage("sign up attempts", rl.retryAfterSec), values: vals(fd) };
   const r = await signUp(parsed.data.email, parsed.data.password);
   if (r.error) return { error: r.error, values: vals(fd) };
@@ -107,7 +107,7 @@ export async function logInAction(_: FormState, fd: FormData): Promise<FormState
   const tooMany = (retryAfterSec: number): FormState => ({ error: waitMessage("login attempts", retryAfterSec), values: vals(fd) });
 
   // 1. Every attempt from one address, whatever the account.
-  const byIp = take(`login:ip:${ip}`, LIMITS.loginPerIp);
+  const byIp = await takeShared(`login:ip:${ip}`, LIMITS.loginPerIp);
   if (!byIp.ok) return tooMany(byIp.retryAfterSec);
 
   // 2. Failures for this account from this client: this browser if it has logged in to the account before,
@@ -116,19 +116,45 @@ export async function logInAction(_: FormState, fd: FormData): Promise<FormState
   const device = await recognisedDevice(email);
   const clientKey = `login:fail:${email}:${device ? `device:${device}` : `ip:${ip}`}`;
   const accountKey = `login:fail:${email}`;
-  const byClient = peek(clientKey, LIMITS.loginFailPerClient);
-  const byAccount = device ? { ok: true, retryAfterSec: 0 } : peek(accountKey, LIMITS.loginFailPerAccount);
+  const byClient = await peekShared(clientKey, LIMITS.loginFailPerClient);
+  const byAccount = device ? { ok: true, retryAfterSec: 0 } : await peekShared(accountKey, LIMITS.loginFailPerAccount);
   if (!byClient.ok || !byAccount.ok) return tooMany(Math.max(byClient.retryAfterSec, byAccount.retryAfterSec));
 
   const r = await logIn(email, parsed.data.password);
   if (r.error) {
-    take(clientKey, LIMITS.loginFailPerClient);
-    take(accountKey, LIMITS.loginFailPerAccount);
+    await takeShared(clientKey, LIMITS.loginFailPerClient);
+    await takeShared(accountKey, LIMITS.loginFailPerAccount);
     return { error: r.error, values: vals(fd) };
   }
-  clear(clientKey);
+  await clearShared(clientKey);
   await rememberDevice(email);
   redirect("/app");
+}
+
+/** "Forgot password": sends a reset link if the account exists; the answer never says whether it does. */
+export async function requestPasswordResetAction(_: FormState, fd: FormData): Promise<FormState> {
+  const parsed = z.object({ email: emailSchema }).safeParse({ email: fd.get("email") });
+  if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error), values: vals(fd) };
+  const byIp = await takeShared(`reset:ip:${await clientIp()}`, LIMITS.resetPerIp);
+  if (!byIp.ok) return { error: waitMessage("reset requests", byIp.retryAfterSec), values: vals(fd) };
+  // Over the per-email limit: answer as if it was sent, so the limit does not reveal anything either.
+  const byEmail = await takeShared(`reset:email:${parsed.data.email}`, LIMITS.resetPerEmail);
+  if (byEmail.ok) {
+    const r = await requestPasswordReset(parsed.data.email);
+    if (r.error) return { error: r.error, values: vals(fd) };
+  }
+  return { ok: "If an account uses that email, we have sent it a link to choose a new password. Check your inbox and spam folder." };
+}
+
+/** Sets a new password after the reset link signed the person in. */
+export async function setNewPasswordAction(_: FormState, fd: FormData): Promise<FormState> {
+  await requireUser();
+  const parsed = z.object({ password: passwordSchema, confirm: z.string() }).refine((v) => v.password === v.confirm, { message: "The two passwords are different.", path: ["confirm"] })
+    .safeParse({ password: fd.get("password"), confirm: fd.get("confirm") });
+  if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error) };
+  const r = await setNewPassword(parsed.data.password);
+  if (r.error) return { error: r.error };
+  redirect("/app?password=updated");
 }
 
 export async function logOutAction() {
@@ -283,7 +309,7 @@ export async function useGoogleValueAction(fd: FormData): Promise<void> {
 /** Settings and onboarding: read the Business Profile again and fill what is missing. */
 export async function refreshFromGoogleAction(_: FormState, __: FormData): Promise<FormState> {
   const { user, scope } = await requireScope();
-  const rl = take(`gbp-refresh:${user.id}`, LIMITS.gbpRefreshPerUser);
+  const rl = await takeShared(`gbp-refresh:${user.id}`, LIMITS.gbpRefreshPerUser);
   if (!rl.ok) return { error: waitMessage("updates", rl.retryAfterSec) };
   const r = await syncBusinessFromGoogle(scope);
   revalidatePath("/app", "layout");
@@ -319,7 +345,7 @@ export async function runVisibilityAction(_: FormState, __: FormData): Promise<F
     return { error: "No AI provider is configured. Add ANTHROPIC_API_KEY to your .env file and restart." };
   }
   const rlKey = `visibility:${user.id}`;
-  const rl = take(rlKey, LIMITS.visibilityPerUser);
+  const rl = await takeShared(rlKey, LIMITS.visibilityPerUser);
   if (!rl.ok) return { error: waitMessage("visibility checks", rl.retryAfterSec) };
   let failed: { label: string; error: string }[];
   try {
@@ -339,7 +365,7 @@ export async function runVisibilityAction(_: FormState, __: FormData): Promise<F
       fixes: fixes ?? undefined,
     });
   } catch (e) {
-    refund(rlKey); // a failed check is not counted toward the hourly limit
+    await refundShared(rlKey); // a failed check is not counted toward the hourly limit
     return { error: e instanceof Error ? e.message : "The check failed. Try again in a minute." };
   }
   revalidatePath("/app", "layout");
@@ -460,7 +486,7 @@ export async function createReportAction(_: FormState, fd: FormData): Promise<Fo
   const { user, scope } = await requireScope();
   const month = String(fd.get("month") ?? new Date().toISOString().slice(0, 7));
   if (!/^\d{4}-\d{2}$/.test(month) || month > new Date().toISOString().slice(0, 7)) return { error: "Choose this month or an earlier one." };
-  const rl = take(`report:${user.id}`, { limit: 10, windowMs: 60 * 60_000 });
+  const rl = await takeShared(`report:${user.id}`, { limit: 10, windowMs: 60 * 60_000 });
   if (!rl.ok) return { error: waitMessage("reports", rl.retryAfterSec) };
   const r = await buildMonthlyReport(scope, month, "owner");
   revalidatePath("/app/reports");
@@ -480,7 +506,7 @@ export type ShareEvent = (typeof SHARE_EVENTS)[number];
 export async function recordShareEventAction(kind: ShareEvent): Promise<void> {
   const { user, scope } = await requireScope();
   if (!SHARE_EVENTS.includes(kind)) return;
-  if (!take(`share:${user.id}`, { limit: 200, windowMs: 60 * 60_000 }).ok) return;
+  if (!(await takeShared(`share:${user.id}`, { limit: 200, windowMs: 60 * 60_000 })).ok) return;
   const m = new Date().toISOString().slice(0, 7);
   // One atomic step, so two share actions at the same moment are both counted.
   await db.updateLocal<Record<string, Partial<Record<ShareEvent, number>>>>(scope, "share_events", {}, (all) => {
@@ -562,10 +588,11 @@ export async function addGoogleLocationAction(_: FormState, fd: FormData): Promi
   }
   const id = randomUUID().replace(/-/g, "").slice(0, 10);
   const next: Scope = { userId: user.id, loc: id };
+  // The location is added to the list first: with the database a location must exist before data is saved to it.
+  await db.updateLocations(user.id, (cur) => ({ active: id, ids: [...cur.ids, id] }));
   await db.saveBusiness(next, { name: pick.title, website: "", location: pick.city || b.location, type: b.type, category: defaultCategory(b.type), language: b.language ?? "en",
     audit: {}, sources: { name: "google" }, createdAt: new Date().toISOString() });
   await db.saveGoogle(next, { email: conn.email, tokens: conn.tokens, scopes: conn.scopes, connectedAt: new Date().toISOString(), ...locationFields(pick) });
-  await db.updateLocations(user.id, (cur) => ({ active: id, ids: [...cur.ids, id] }));
   const sync = await syncBusinessFromGoogle(next);
   revalidatePath("/app", "layout");
   redirect(`/app?added=${sync.error ? "unsynced" : "1"}`);
@@ -597,7 +624,7 @@ export async function replyAction(_: FormState, fd: FormData): Promise<FormState
     if (!["new", "regenerate", "shorter", "longer", "professional", "friendly"].includes(variant)) return { error: "Unknown action." };
     const current = String(fd.get("text") ?? "").trim();
     if (variant !== "new" && variant !== "regenerate" && !current) return { error: "Draft a reply first, then ask for a change." };
-    const rl = take(`draft:${user.id}`, LIMITS.draftPerUser);
+    const rl = await takeShared(`draft:${user.id}`, LIMITS.draftPerUser);
     if (!rl.ok) return { error: waitMessage("drafts", rl.retryAfterSec) };
     try {
       const text = await draftReply(b, { stars: review.stars, comment: review.comment, firstName: review.reviewer.split(" ")[0] },
@@ -644,7 +671,7 @@ export async function replyAction(_: FormState, fd: FormData): Promise<FormState
     if (saved?.status !== "approved" || saved.text !== text) {
       return { error: "Approve this exact reply before publishing it. Changes made after approving need approving again.", text, status: saved?.status };
     }
-    const rl = take(`gbp-edit:${conn.locationName}`, LIMITS.gbpEditsPerLocation);
+    const rl = await takeShared(`gbp-edit:${conn.locationName}`, LIMITS.gbpEditsPerLocation);
     if (!rl.ok) return { error: "Google allows only a few changes a minute for one business. Try again in a minute.", text, status: "approved" };
     try {
       const r = await withGoogle(scope, conn, "reply", (t) => updateReply(t, id, text));
@@ -678,7 +705,7 @@ export async function postComposerAction(_: FormState, fd: FormData): Promise<Fo
     const topic = String(fd.get("topic") ?? "").trim();
     if (topic.length < 5) return { error: "Say what the post is about, in a few words.", values: vals(fd) };
     if (topic.length > 200) return { error: "Keep the topic under 200 characters.", values: vals(fd) };
-    const rl = take(`draft:${user.id}`, LIMITS.draftPerUser);
+    const rl = await takeShared(`draft:${user.id}`, LIMITS.draftPerUser);
     if (!rl.ok) return { error: waitMessage("drafts", rl.retryAfterSec), values: vals(fd) };
     const kind = String(fd.get("kind") ?? "STANDARD");
     const cta = String(fd.get("ctaType") ?? "") || undefined;
@@ -882,7 +909,7 @@ export async function deleteInsightAction(_: FormState, fd: FormData): Promise<F
 
 /* ---------------- Google Places ---------------- */
 async function placesBudget(userId: string, cost = 1): Promise<string | null> {
-  const rl = take(`places:${userId}`, LIMITS.placesPerUser, cost);
+  const rl = await takeShared(`places:${userId}`, LIMITS.placesPerUser, cost);
   return rl.ok ? null : waitMessage("Google Places requests", rl.retryAfterSec);
 }
 
@@ -1024,7 +1051,7 @@ export async function explainCompetitorsAction(): Promise<FormState> {
   const snap = historyFor(all, b.placeId, categoryQuery(b)).competitors?.[0];
   if (!snap) return { error: "Run the competitor comparison first." };
   if (snap.explanation) return { ok: "Explained." };
-  const rl = take(`draft:${user.id}`, LIMITS.draftPerUser);
+  const rl = await takeShared(`draft:${user.id}`, LIMITS.draftPerUser);
   if (!rl.ok) return { error: waitMessage("AI requests", rl.retryAfterSec) };
   const facts = `Search: "${snap.query}". Businesses compared: ${snap.compared}. Owner's position: ${snap.position ?? "not in the top results"}.\n` +
     snap.metrics.map((m) => `${m.metric}: data for ${m.known}; ahead of the owner: ${m.ahead}; behind: ${m.behind}${m.youHave === undefined ? "" : `; the owner has it: ${m.youHave ? "yes" : "no"}`}`).join("\n");
@@ -1100,7 +1127,7 @@ export async function gridCompetitorNamesAction(scanId: string, only?: string[])
 /* ---------------- Business Profile insights ---------------- */
 export async function refreshInsightsAction(): Promise<FormState> {
   const { user, scope } = await requireScope();
-  const rl = take(`gbp-refresh:${user.id}`, LIMITS.gbpRefreshPerUser);
+  const rl = await takeShared(`gbp-refresh:${user.id}`, LIMITS.gbpRefreshPerUser);
   if (!rl.ok) return { error: waitMessage("updates", rl.retryAfterSec) };
   const { error } = await refreshInsights(scope);
   revalidatePath("/app/google");
@@ -1114,7 +1141,7 @@ export async function explainInsightsAction(): Promise<FormState> {
   const ins = conn?.insights;
   if (!b || !conn || !ins) return { error: "Load the insights from Google first." };
   if (ins.explanation) return { ok: "Explained." };
-  const rl = take(`draft:${user.id}`, LIMITS.draftPerUser);
+  const rl = await takeShared(`draft:${user.id}`, LIMITS.draftPerUser);
   if (!rl.ok) return { error: waitMessage("AI requests", rl.retryAfterSec) };
   const label: Record<string, string> = { searchViews: "Search views", mapsViews: "Maps views", calls: "Calls", website: "Website clicks", directions: "Direction requests", messages: "Message clicks", bookings: "Bookings" };
   const facts = Object.keys(label).map((k) => {
@@ -1165,7 +1192,7 @@ export async function refreshGrowthAction(force = false): Promise<GrowthRefresh>
   if (!view.hasSignals || !view.candidates.length) return { status: "no-data" };
   if (!force && growth.cache?.fingerprint === view.fingerprint) return { status: growth.cache.source === "ai" ? "fresh" : "rules" };
   if (!env.anthropicConfigured()) return { status: "rules", message: "AI recommendations are not available right now." };
-  const rl = take(`growth:${user.id}`, LIMITS.growthPerUser);
+  const rl = await takeShared(`growth:${user.id}`, LIMITS.growthPerUser);
   if (!rl.ok) return { status: "rules", message: waitMessage("recommendation updates", rl.retryAfterSec) };
   let recs = null;
   let message: string | undefined;
@@ -1218,7 +1245,7 @@ export async function draftActionContentAction(_: DraftState, fd: FormData): Pro
   const { view, growth } = await loadGrowth(scope, b);
   const c = view.candidates.find((x) => x.id === id.data) ?? growth.cache?.recs.find((x) => x.id === id.data);
   if (!c?.contentKind) return { error: "There is no content to draft for this action." };
-  const rl = take(`draft:${user.id}`, LIMITS.draftPerUser);
+  const rl = await takeShared(`draft:${user.id}`, LIMITS.draftPerUser);
   if (!rl.ok) return { error: waitMessage("drafts", rl.retryAfterSec) };
   try {
     const text = await draftActionContent(b, c.contentKind);

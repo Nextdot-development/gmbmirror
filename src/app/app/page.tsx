@@ -17,7 +17,8 @@ export const metadata: Metadata = { title: "Dashboard" };
 
 const PRIORITY: Record<Priority, string> = { Critical: "badge-bad", High: "badge-warn", Medium: "" };
 
-export default async function Dashboard() {
+export default async function Dashboard({ searchParams }: { searchParams: Promise<{ password?: string }> }) {
+  const { password } = await searchParams;
   const { user, scope, business: b } = await requireBusiness();
   const [{ view, growth, places, checks }, google] = await Promise.all([loadGrowth(scope, b), db.getGoogle(scope)]);
   const { recs, source, stale } = currentRecommendations(view, growth);
@@ -44,6 +45,8 @@ export default async function Dashboard() {
         <p className="body-3 mt-1 text-muted">{b.location} · {categoryInfo(b.category, b.type).label}</p>
         <p className="mt-4"><span className={`badge ${gStatus.c}`}>{gStatus.t}</span></p>
       </header>
+
+      {password === "updated" ? <p role="status" className="body-6 font-medium text-ok" data-testid="password-updated">Your new password is saved.</p> : null}
 
       {connectCta ? (
         <div className="panel-soft flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between" data-testid="connect-cta">

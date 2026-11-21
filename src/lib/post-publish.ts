@@ -2,7 +2,7 @@ import "server-only";
 import { db, type Scope } from "./store";
 import { live, withGoogle } from "./gbp";
 import { createPost, GbpError, listPosts, updatePost, type GbpPost } from "./gbp-api";
-import { LIMITS, take } from "./ratelimit";
+import { LIMITS, takeShared } from "./ratelimit";
 import type { PostDraft } from "./types";
 
 export type PublishResult =
@@ -22,7 +22,7 @@ export async function publishPost(scope: Scope, p: PostDraft, opts: { recoverSin
   if (!live(conn)) return { ok: false, kind: "wait", reason: "Publishing turns on after you connect Google and choose your business location." };
   if (p.kind !== "STANDARD" && !p.event) return { ok: false, kind: "invalid", reason: "This post has no event details. Delete it and create it again with a title and dates." };
   if (p.googleName && p.publishedTo !== target) return { ok: false, kind: "invalid", reason: "This post was published to a different Google location. Switch back to that location to update it." };
-  if (!take(`gbp-edit:${conn.locationName}`, LIMITS.gbpEditsPerLocation).ok) return { ok: false, kind: "retry", reason: "Google allows only a few changes a minute for one business. Trying again shortly." };
+  if (!(await takeShared(`gbp-edit:${conn.locationName}`, LIMITS.gbpEditsPerLocation)).ok) return { ok: false, kind: "retry", reason: "Google allows only a few changes a minute for one business. Trying again shortly." };
   const b = await db.getBusiness(scope);
   const lang = b?.language === "hi" ? "hi" : "en";
   try {

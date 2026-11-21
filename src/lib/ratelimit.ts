@@ -26,6 +26,9 @@ export const LIMITS = {
   /** Failed logins for one account from anywhere. Catches guessing spread over many addresses; recognised browsers are exempt. */
   loginFailPerAccount: { limit: 20, windowMs: 60 * 60_000 },
   signupPerIp: { limit: 5, windowMs: 60 * 60_000 },
+  /** Password reset emails: per client address, and per email address. */
+  resetPerIp: { limit: 5, windowMs: 60 * 60_000 },
+  resetPerEmail: { limit: 3, windowMs: 60 * 60_000 },
   /** Each visibility check makes several paid model calls. */
   visibilityPerUser: { limit: 6, windowMs: 60 * 60_000 },
   /** Reply and post drafts, one model call each. */
@@ -148,4 +151,38 @@ export async function clientIp(): Promise<string> {
 export function waitMessage(what: string, retryAfterSec: number): string {
   const mins = Math.max(1, Math.ceil(retryAfterSec / 60));
   return `Too many ${what}. Try again in about ${mins} minute${mins === 1 ? "" : "s"}.`;
+}
+
+/* ---------------- Shared limits (what the app uses) ---------------- */
+
+/**
+ * The same limits, shared by every server instance in Supabase mode (a PostgreSQL table and function), and held in
+ * this process's memory in demo mode. On Vercel each function instance has its own memory, so without the shared
+ * store a login lockout or a Google budget could be passed by spreading requests over instances.
+ */
+const shared = () => process.env.APP_MODE === "supabase";
+const pg = () => import("./db-pg");
+
+export async function takeShared(key: string, l: Limit, cost = 1): Promise<{ ok: boolean; retryAfterSec: number }> {
+  if (!shared()) return take(key, l, cost);
+  if (cost > l.limit) return { ok: false, retryAfterSec: Math.ceil(l.windowMs / 1000) };
+  const r = (await (await pg()).query<{ ok: boolean; retry_after_sec: number }>("select * from public.take_rate_limit($1, $2, $3, $4)", [key, l.limit, l.windowMs, cost]))[0];
+  return { ok: r.ok, retryAfterSec: r.retry_after_sec };
+}
+
+export async function peekShared(key: string, l: Limit, cost = 1): Promise<{ ok: boolean; retryAfterSec: number }> {
+  if (!shared()) return peek(key, l, cost);
+  const r = (await (await pg()).query<{ count: number; reset_at: Date }>("select count, reset_at from public.rate_limits where key = $1", [key]))[0];
+  if (!r || r.reset_at.getTime() <= Date.now() || r.count + cost <= l.limit) return { ok: true, retryAfterSec: 0 };
+  return { ok: false, retryAfterSec: Math.ceil((r.reset_at.getTime() - Date.now()) / 1000) };
+}
+
+export async function refundShared(key: string): Promise<void> {
+  if (!shared()) return refund(key);
+  await (await pg()).query("update public.rate_limits set count = greatest(count - 1, 0) where key = $1", [key]);
+}
+
+export async function clearShared(key: string): Promise<void> {
+  if (!shared()) return clear(key);
+  await (await pg()).query("delete from public.rate_limits where key = $1", [key]);
 }

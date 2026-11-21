@@ -1,5 +1,5 @@
 import "server-only";
-import { LIMITS, take } from "./ratelimit";
+import { LIMITS, takeShared } from "./ratelimit";
 import type { GbpInsights, GbpMetricGroup, PostDraft, Review } from "./types";
 
 /**
@@ -102,7 +102,7 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function call<T>(token: string, url: string, init: RequestInit = {}): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
   for (let attempt = 0; ; attempt++) {
-    if (!take("gbp:project", LIMITS.gbpProject).ok) {
+    if (!(await takeShared("gbp:project", LIMITS.gbpProject)).ok) {
       console.error("[gbp] request held back: this server's own limit of Google requests per minute was reached");
       throw new GbpError("quota", 429, "LOCAL_GUARD");
     }

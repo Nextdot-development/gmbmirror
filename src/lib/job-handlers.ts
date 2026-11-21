@@ -7,7 +7,7 @@ import { GbpError, listReviews, updateReply } from "./gbp-api";
 import { publishPost } from "./post-publish";
 import { draftReply } from "./ai";
 import { autoBlockers, classifyReview, defaultAutomation, replyIssues } from "./review-safety";
-import { LIMITS, take } from "./ratelimit";
+import { LIMITS, takeShared } from "./ratelimit";
 import { buildMonthlyReport, previousMonth } from "./reports";
 import type { AutomationLogEntry, Job, PostDraft, ReplyDraft } from "./types";
 
@@ -84,7 +84,7 @@ async function sweepFor(scope: Scope, job: Job): Promise<JobOutcome> {
     const now = new Date().toISOString();
     const blockers = settings.replies === "auto" ? autoBlockers(settings, r.stars, cls, issues, true) : ["Approval mode: you approve every reply."];
     let draft: ReplyDraft = { text, status: "draft", updatedAt: now, byAutomation: true, holdReasons: [...cls.reasons, ...issues], history: [{ at: now, action: "drafted", by: "automation", text }] };
-    if (settings.replies === "auto" && !blockers.length && take(`gbp-edit:${conn.locationName}`, LIMITS.gbpEditsPerLocation).ok) {
+    if (settings.replies === "auto" && !blockers.length && (await takeShared(`gbp-edit:${conn.locationName}`, LIMITS.gbpEditsPerLocation)).ok) {
       try {
         const res = await withGoogle(scope, conn, "reply", (t) => updateReply(t, r.id, text));
         draft = { ...draft, status: "posted", postedAt: new Date().toISOString(), googleState: res.state, history: [{ at: new Date().toISOString(), action: "auto_published", by: "automation", text, note: res.state }, ...draft.history!] };
@@ -178,8 +178,8 @@ export async function planRecurring(userId: string, at = new Date()) {
 }
 
 /** One pass of the background runner: plan recurring work, then run what is due. */
-export async function runJobs(opts: { userIds?: string[]; at?: Date } = {}) {
+export async function runJobs(opts: { userIds?: string[]; at?: Date; budgetMs?: number } = {}) {
   const users = opts.userIds ?? (await db.listUserIds());
   for (const u of users) await planRecurring(u, opts.at);
-  return runDueJobs(HANDLERS, { userIds: users, at: opts.at });
+  return runDueJobs(HANDLERS, { userIds: users, at: opts.at, budgetMs: opts.budgetMs });
 }

@@ -7,7 +7,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { env } from "./env";
 import { hashPassword, sign, unsign, verifyPassword } from "./crypto";
-import { supabaseCookieOptions } from "./supabase-cookies";
+import { supabaseCookieOptions, supabasePublicKey } from "./supabase-cookies";
 
 export type User = { id: string; email: string };
 
@@ -85,7 +85,7 @@ async function writeJson(file: string, data: unknown) {
 
 export async function supabaseServer() {
   const store = await cookies();
-  return createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  return createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, supabasePublicKey()!, {
     cookies: {
       getAll: () => store.getAll(),
       setAll: (list) => {
@@ -141,7 +141,8 @@ export function signupError(code?: string): string {
 export async function signUp(email: string, password: string): Promise<{ error?: string; needsConfirm?: boolean }> {
   if (env.mode() === "supabase") {
     const sb = await supabaseServer();
-    const { data, error } = await sb.auth.signUp({ email, password });
+    // The confirmation email links back to /auth/confirm on this site, which signs the person in.
+    const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: `${env.appUrl()}/auth/confirm?next=/app/onboarding` } });
     if (error) return { error: signupError((error as { code?: string }).code) };
     return { needsConfirm: !data.session };
   }
@@ -162,6 +163,8 @@ export async function logIn(email: string, password: string): Promise<{ error?: 
   if (env.mode() === "supabase") {
     const sb = await supabaseServer();
     const { error } = await sb.auth.signInWithPassword({ email, password });
+    // Only said after a correct password, so it does not reveal which emails have accounts.
+    if ((error as { code?: string } | null)?.code === "email_not_confirmed") return { error: "Confirm your email first: open the link we sent when you signed up, then log in." };
     return error ? { error: "Email or password is incorrect." } : {};
   }
   const users = await readJson<Record<string, { id: string; email: string; hash: string }>>(USERS_FILE, {});
@@ -180,4 +183,56 @@ export async function logOut() {
   } else {
     await endDemoSession();
   }
+}
+
+/* ---------------- Email links and password reset (Supabase mode) ---------------- */
+
+/** Where a link from an email may send the person afterwards: only a path on this site. */
+export function safeNext(next: string | null | undefined, fallback = "/app"): string {
+  return next && /^\/(?!\/)[A-Za-z0-9/_\-?=&.]*$/.test(next) ? next : fallback;
+}
+
+/**
+ * Completes a link from a Supabase email (sign-up confirmation or password reset) and starts the session.
+ * Two link forms are accepted: `token_hash` + `type` (the recommended email template, works in any browser), and
+ * `code` (Supabase's default PKCE link, which works only in the browser that asked for it).
+ */
+export async function completeEmailLink(p: { tokenHash?: string | null; type?: string | null; code?: string | null }): Promise<boolean> {
+  if (env.mode() !== "supabase") return false;
+  const sb = await supabaseServer();
+  const types = ["signup", "email", "recovery", "invite", "magiclink", "email_change"] as const;
+  if (p.tokenHash && p.type && (types as readonly string[]).includes(p.type)) {
+    const { error } = await sb.auth.verifyOtp({ token_hash: p.tokenHash, type: p.type as (typeof types)[number] });
+    return !error;
+  }
+  if (p.code) {
+    const { error } = await sb.auth.exchangeCodeForSession(p.code);
+    return !error;
+  }
+  return false;
+}
+
+/**
+ * Sends a password reset email if an account exists. The answer is the same either way, so it does not reveal
+ * which emails have accounts. Demo mode has no email, so it cannot reset passwords.
+ */
+export async function requestPasswordReset(email: string): Promise<{ error?: string }> {
+  if (env.mode() !== "supabase") return { error: "Password reset needs the live service. It is not available in this local demo." };
+  const sb = await supabaseServer();
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: `${env.appUrl()}/auth/confirm?next=/reset-password` });
+  const code = (error as { code?: string } | null)?.code;
+  if (code === "over_email_send_rate_limit" || code === "over_request_rate_limit") return { error: "Too many reset emails were sent. Try again in about an hour." };
+  return {};
+}
+
+/** Sets a new password for the signed-in person (after opening a reset link). */
+export async function setNewPassword(password: string): Promise<{ error?: string }> {
+  if (env.mode() !== "supabase") return { error: "Password reset is not available in this local demo." };
+  const sb = await supabaseServer();
+  const { error } = await sb.auth.updateUser({ password });
+  if (!error) return {};
+  const code = (error as { code?: string }).code;
+  if (code === "same_password") return { error: "Choose a password different from your current one." };
+  if (code === "weak_password") return { error: "Choose a stronger password: longer, and not a common one." };
+  return { error: "The password could not be changed. Open the link from the email again." };
 }

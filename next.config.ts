@@ -39,6 +39,10 @@ const config: NextConfig = {
   turbopack: { root: __dirname },
   // HarfBuzz (PDF text shaping for Hindi) loads its WebAssembly file from its own package folder, so it is not bundled.
   serverExternalPackages: ["harfbuzzjs"],
+  // Files read at run time that a serverless deployment (Vercel) must ship with the report PDF route.
+  outputFileTracingIncludes: {
+    "/app/reports/[id]/pdf": ["./src/assets/fonts/*.ttf", "./node_modules/harfbuzzjs/dist/*.wasm"],
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

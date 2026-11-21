@@ -2,12 +2,13 @@ import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { env } from "./env";
-import { supabaseServer } from "./session";
+import { pgDelete, pgDeleteAccount, pgGet, pgListUserIds, pgSet, pgUpdate } from "./db-pg";
 import type { Business, GoogleConnection, GrowthState, GuideProgress, PostDraft, ReplyDraft, VisibilityCheck, PlacesHistory } from "./types";
 
 /**
  * One tiny key value layer per user. Demo mode writes a JSON file under .data.
- * Supabase mode writes rows to public.user_data with row level security (see supabase/schema.sql).
+ * Supabase mode stores the same values in PostgreSQL tables from the server (db-pg.ts, and
+ * supabase/migrations/*_gmbmirror_core.sql); every change there is atomic across server instances.
  */
 const FILE = path.join(process.cwd(), ".data", "user_data.json");
 
@@ -39,27 +40,14 @@ async function writeAll(all: Record<string, Record<string, unknown>>) {
 }
 
 async function getKey<T>(userId: string, key: string, fallback: T): Promise<T> {
-  if (env.mode() === "supabase") {
-    const sb = await supabaseServer();
-    const { data, error } = await sb.from("user_data").select("value").eq("user_id", userId).eq("key", key).maybeSingle();
-    // A failed read is not the same as "no row". Treating it as empty sent people back to onboarding,
-    // where saving would overwrite what they already had.
-    if (error) throw new Error(`Could not load ${key}: ${error.message}`);
-    return (data?.value as T) ?? fallback;
-  }
+  // A failed database read throws: it is never treated as "no data" (that sent people back to onboarding).
+  if (env.mode() === "supabase") return pgGet<T>(userId, key, fallback);
   const all = await demoRead();
   return (all[userId]?.[key] as T) ?? fallback;
 }
 
 async function setKey(userId: string, key: string, value: unknown): Promise<void> {
-  if (env.mode() === "supabase") {
-    const sb = await supabaseServer();
-    const { error } = await sb
-      .from("user_data")
-      .upsert({ user_id: userId, key, value, updated_at: new Date().toISOString() }, { onConflict: "user_id,key" });
-    if (error) throw new Error(`Could not save ${key}: ${error.message}`);
-    return;
-  }
+  if (env.mode() === "supabase") return pgSet(userId, key, value);
   await serial(async () => {
     const all = await demoRead();
     all[userId] = { ...(all[userId] ?? {}), [key]: value };
@@ -85,13 +73,8 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
  * in this process can land between the read and the write. `fn` returns undefined to leave the value as it is.
  */
 async function updateKey<T>(userId: string, key: string, fallback: T, fn: (cur: T) => T | undefined): Promise<T> {
-  if (env.mode() === "supabase") {
-    // Supabase: no transaction here; a conditional update in SQL would be needed for the same guarantee.
-    const cur = await getKey<T>(userId, key, fallback);
-    const next = fn(cur);
-    if (next !== undefined) await setKey(userId, key, next);
-    return next ?? cur;
-  }
+  // Supabase: one transaction holding a lock on this user's key, so it is atomic across every server instance.
+  if (env.mode() === "supabase") return pgUpdate<T>(userId, key, fallback, fn);
   return serial(async () => {
     const all = await demoRead();
     const cur = (all[userId]?.[key] as T) ?? fallback;
@@ -104,12 +87,7 @@ async function updateKey<T>(userId: string, key: string, fallback: T, fn: (cur: 
 }
 
 async function delKey(userId: string, key: string) {
-  if (env.mode() === "supabase") {
-    const sb = await supabaseServer();
-    const { error } = await sb.from("user_data").delete().eq("user_id", userId).eq("key", key);
-    if (error) throw new Error(`Could not delete ${key}: ${error.message}`);
-    return;
-  }
+  if (env.mode() === "supabase") return pgDelete(userId, key);
   await serial(async () => {
     const all = await demoRead();
     if (all[userId]) delete all[userId][key];
@@ -224,14 +202,16 @@ export const db = {
   },
   /** Removes everything the user has, in every location ("Delete my data"). */
   deleteAccountData: async (userId: string) => {
+    // Supabase: the account row; locations, records, connections and jobs go with it (foreign keys).
+    if (env.mode() === "supabase") return pgDeleteAccount(userId);
     const { ids } = await db.getLocations(userId);
     for (const loc of new Set([MAIN_LOCATION, ...ids])) await db.deleteLocation({ userId, loc });
     for (const k of ["locations", "jobs", "ai_usage"]) await delKey(userId, k);
   },
 
-  /** Every user id with stored data (demo mode only; used by the background job runner). */
+  /** Every user id with stored data (used by the background job runner to plan recurring work). */
   listUserIds: async (): Promise<string[]> => {
-    if (env.mode() === "supabase") throw new Error("Listing users needs a server-side Supabase client (see docs: background jobs).");
+    if (env.mode() === "supabase") return pgListUserIds();
     return Object.keys(await demoRead());
   },
 };

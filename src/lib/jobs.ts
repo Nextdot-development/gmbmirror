@@ -1,6 +1,8 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { db } from "./store";
+import { env } from "./env";
+import { pgCancel, pgClaimNext, pgEnqueue, pgFinish, pgListJobs } from "./jobs-pg";
 import { runAsAiUser } from "./ai-usage";
 import type { Job, JobKind, JobStatus } from "./types";
 
@@ -12,8 +14,8 @@ import type { Job, JobKind, JobStatus } from "./types";
  *  - a running job holds a lease, so it is not taken twice; a crashed run is retried after the lease expires,
  *  - failures are retried with back-off, then marked failed with the reason,
  *  - every step is logged on the job.
- * Claims are atomic within one server process. The demo JSON store supports one server process only; with several
- * processes or instances, claims need a conditional update in the database (see docs/MASTER_PROJECT_STATUS.md, 0L).
+ * Demo mode (JSON store): claims are atomic within one server process, which is all the JSON store supports.
+ * Supabase mode: the queue lives in PostgreSQL (jobs-pg.ts) and is safe across instances; see runDueJobsPg.
  */
 
 const MAX_JOBS = 400;
@@ -26,6 +28,7 @@ const now = () => new Date();
 const iso = (d: Date) => d.toISOString();
 
 export async function listJobs(userId: string, loc?: string): Promise<Job[]> {
+  if (env.mode() === "supabase") return pgListJobs(userId, loc);
   const all = await db.getUserKey<Job[]>(userId, "jobs", []);
   return loc ? all.filter((j) => j.loc === loc) : all;
 }
@@ -53,6 +56,7 @@ export type NewJob = { kind: JobKind; loc: string; key: string; runAt: Date; pay
  * already succeeded (also returned: a key is done once).
  */
 export async function enqueue(userId: string, j: NewJob): Promise<Job> {
+  if (env.mode() === "supabase") return pgEnqueue(userId, j);
   let result!: Job;
   await update(userId, (jobs) => {
     const existing = jobs.find((x) => x.key === j.key && (LIVE.includes(x.status) || x.status === "succeeded"));
@@ -70,6 +74,7 @@ export async function enqueue(userId: string, j: NewJob): Promise<Job> {
 
 /** Cancels the live jobs with this key (for example when a scheduled post is edited or deleted). */
 export async function cancelJobs(userId: string, key: string, reason: string): Promise<number> {
+  if (env.mode() === "supabase") return pgCancel(userId, { key }, reason);
   let n = 0;
   await update(userId, (jobs) => jobs.map((x) => {
     if (x.key !== key || !LIVE.includes(x.status)) return x;
@@ -82,6 +87,7 @@ export async function cancelJobs(userId: string, key: string, reason: string): P
 
 /** Cancels every live job of one location (for example when the location is removed). */
 export async function cancelLocationJobs(userId: string, loc: string, reason: string): Promise<number> {
+  if (env.mode() === "supabase") return pgCancel(userId, { loc }, reason);
   let n = 0;
   await update(userId, (jobs) => jobs.map((x) => {
     if (x.loc !== loc || !LIVE.includes(x.status)) return x;
@@ -94,6 +100,7 @@ export async function cancelLocationJobs(userId: string, loc: string, reason: st
 
 /** Cancels every live job whose key starts with `prefix` (for example all scheduled runs of one post). */
 export async function cancelMatching(userId: string, prefix: string, reason: string): Promise<number> {
+  if (env.mode() === "supabase") return pgCancel(userId, { prefix }, reason);
   let n = 0;
   await update(userId, (jobs) => jobs.map((x) => {
     if (!x.key.startsWith(prefix) || !LIVE.includes(x.status)) return x;
@@ -153,7 +160,8 @@ const PER_PASS = 60;
  * Runs due jobs for the given users (default: every user with data). Due jobs of all users are collected first and
  * run by priority, so one busy account cannot delay another's scheduled post. One pass at a time per process.
  */
-export async function runDueJobs(handlers: Partial<Record<JobKind, Handler>>, opts: { userIds?: string[]; at?: Date } = {}): Promise<{ ran: number; results: { id: string; kind: JobKind; status: JobStatus }[]; skipped?: string }> {
+export async function runDueJobs(handlers: Partial<Record<JobKind, Handler>>, opts: { userIds?: string[]; at?: Date; budgetMs?: number } = {}): Promise<{ ran: number; results: { id: string; kind: JobKind; status: JobStatus }[]; skipped?: string }> {
+  if (env.mode() === "supabase") return runDueJobsPg(handlers, opts);
   if (runner.__gmbJobsBusy) return { ran: 0, results: [], skipped: "A run is already in progress." };
   runner.__gmbJobsBusy = true;
   const results: { id: string; kind: JobKind; status: JobStatus }[] = [];
@@ -190,6 +198,35 @@ export async function runDueJobs(handlers: Partial<Record<JobKind, Handler>>, op
     }
   } finally {
     runner.__gmbJobsBusy = false;
+  }
+  return { ran: results.length, results };
+}
+
+/**
+ * Supabase mode: claims due jobs one at a time from the database (any user, time-sensitive kinds first) until none
+ * is due, PER_PASS jobs have run, or the time budget is spent. Each claim holds a lease, so several runners (two
+ * overlapping scheduler calls, several instances) can run at once without taking the same job. A runner stopped
+ * mid-job (function timeout, crash) leaves the lease to expire; the job is then taken again and retried.
+ * `budgetMs`: stop starting new jobs after this long (keep it well under the function's time limit).
+ */
+async function runDueJobsPg(handlers: Partial<Record<JobKind, Handler>>, opts: { at?: Date; budgetMs?: number }) {
+  const results: { id: string; kind: JobKind; status: JobStatus }[] = [];
+  const started = Date.now();
+  const budget = opts.budgetMs ?? 240_000;
+  for (let i = 0; i < PER_PASS && Date.now() - started < budget; i++) {
+    const at = opts.at ?? now();
+    const claimed = await pgClaimNext(at, LEASE_MS / 1000);
+    if (!claimed) break;
+    const handler = handlers[claimed.job.kind];
+    let outcome: JobOutcome;
+    try {
+      outcome = handler ? await runAsAiUser(claimed.userId, () => handler(claimed.job, claimed.userId)) : { status: "failed", message: `No handler for ${claimed.job.kind}.` };
+    } catch (e) {
+      outcome = { status: "retry", message: e instanceof Error ? e.message : "The job failed." };
+    }
+    const next = applyOutcome(claimed.job, outcome, opts.at ? at : now());
+    const saved = await pgFinish(claimed, next);
+    results.push({ id: claimed.job.id, kind: claimed.job.kind, status: saved ? next.status : "running" });
   }
   return { ran: results.length, results };
 }

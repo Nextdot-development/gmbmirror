@@ -12,3 +12,11 @@ export function supabaseCookieOptions<T extends { maxAge?: number }>(options: T 
   if (o.maxAge === undefined || o.maxAge > MAX_AGE) o.maxAge = MAX_AGE;
   return { ...o, httpOnly: true, secure: appUrl.startsWith("https://"), sameSite: "lax" };
 }
+
+/**
+ * The Supabase public key: the newer publishable key (NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, "sb_publishable_...")
+ * or the legacy anon key (NEXT_PUBLIC_SUPABASE_ANON_KEY). Either name works; the publishable key wins if both are set.
+ */
+export function supabasePublicKey(): string | undefined {
+  return process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || undefined;
+}

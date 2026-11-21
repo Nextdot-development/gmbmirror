@@ -56,3 +56,21 @@ test("startup check: production must set TRUSTED_PROXY_HOPS; invalid values are 
   assert.equal(hopsProblems({ NODE_ENV: "development" }).length, 0);
   assert.equal(hopsProblems({ NODE_ENV: "development", TRUSTED_PROXY_HOPS: "all" }).length, 1);
 });
+
+test("Supabase mode accepts the publishable key or the legacy anon key, and needs DATABASE_URL", () => {
+  const base = { APP_MODE: "supabase", SESSION_SECRET: "s".repeat(40), NEXT_PUBLIC_SUPABASE_URL: "https://x.supabase.co" };
+  const p = (e: Record<string, string>) => configProblems({ ...base, ...e } as unknown as NodeJS.ProcessEnv);
+  const db = { DATABASE_URL: "postgresql://u:p@h:6543/postgres" };
+  assert.deepEqual(p({ ...db, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_x" }), []);
+  assert.deepEqual(p({ ...db, NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJ" }), []);
+  assert.ok(p(db).some((x) => x.includes("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY")));
+  assert.ok(p({ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "k" }).some((x) => x.startsWith("DATABASE_URL is required")));
+  assert.ok(p({ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "k", DATABASE_URL: "mysql://x" }).some((x) => x.includes("must start with postgresql://")));
+});
+
+test("demo mode can never run on Vercel, even with ALLOW_DEMO_IN_PRODUCTION", () => {
+  const e = (x: Record<string, string>) => configProblems({ APP_MODE: "demo", SESSION_SECRET: "s".repeat(40), NODE_ENV: "production", TRUSTED_PROXY_HOPS: "1", ALLOW_DEMO_IN_PRODUCTION: "true", ...x } as unknown as NodeJS.ProcessEnv);
+  assert.deepEqual(e({}), [], "a production build on your own machine may still opt in");
+  assert.ok(e({ VERCEL: "1" })[0].includes("cannot run on Vercel"));
+  assert.ok(e({ VERCEL_ENV: "preview" })[0].includes("cannot run on Vercel"));
+});
