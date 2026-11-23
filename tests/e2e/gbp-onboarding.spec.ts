@@ -86,7 +86,7 @@ test("the owner's own values are never replaced by Google; missing details are p
 
 test("switching location replaces the old location's details; nothing from the old one is shown", async ({ page, account }) => {
   await onboardWithGoogle(page, /Saheed Nagar/);
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
   await expect(page.locator("[data-metric=searchViews]")).toContainText("168");
   await page.goto("/app/settings?change=1#google");
   await page.getByRole("radio", { name: /Patia/ }).check();
@@ -103,7 +103,7 @@ test("switching location replaces the old location's details; nothing from the o
   await expect(fromGoogle(page)).toContainText("KIIT Road, Patia, 751024");
   await expect(fromGoogle(page)).not.toContainText("Saheed Nagar");
   await expect(page.locator("#f-phone")).toHaveValue("");
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
   await expect(page.locator("section", { has: page.locator("#bp-h") })).toContainText("Zentrix Skin Clinic, Patia");
   await expect(page.locator("section", { has: page.locator("#bp-h") })).not.toContainText("0674 123 4567");
   await page.goto("/app/reviews");
@@ -127,7 +127,7 @@ test("disconnect and reconnect from Settings: the status changes everywhere, and
   await expect(page.getByTestId("connect-cta")).toBeVisible();
   await page.goto("/app/reviews");
   await expect(page.locator("main")).toContainText("Sample data");
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
   await expect(page.getByTestId("gbp-status")).toHaveText("Not connected");
 
   // Reconnecting: the location matching the listing is chosen again automatically.

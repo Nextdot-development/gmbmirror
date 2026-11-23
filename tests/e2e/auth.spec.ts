@@ -225,7 +225,7 @@ test.describe("login", () => {
 
 test.describe("sessions", () => {
   test("app pages need a session", async ({ page }) => {
-    for (const path of ["/app", "/app/settings", "/app/onboarding", "/app/visibility"]) {
+    for (const path of ["/app", "/app/settings", "/app/onboarding", "/app/ai-visibility"]) {
       await page.goto(path);
       await expect(page, path).toHaveURL(/\/login$/);
     }

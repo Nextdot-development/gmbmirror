@@ -1,6 +1,6 @@
 import "server-only";
 import { cache } from "react";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/ssr";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -9,6 +9,12 @@ import path from "node:path";
 import { env } from "./env";
 import { hashPassword, sign, unsign, verifyPassword } from "./crypto";
 import { supabaseCookieOptions, supabasePublicKey } from "./supabase-cookies";
+import { ASKED_HEADER, loginFor } from "./return-to";
+
+/** Sends a signed-out visitor to log in, coming back afterwards to the dashboard page they asked for. */
+async function toLogin(): Promise<never> {
+  redirect(loginFor((await headers()).get(ASKED_HEADER)));
+}
 
 export type User = { id: string; email: string };
 
@@ -131,7 +137,7 @@ export async function getVerifiedUser(): Promise<User | null> {
 
 export async function requireVerifiedUser(): Promise<User> {
   const user = await getVerifiedUser();
-  if (!user) redirect("/login");
+  if (!user) return toLogin();
   return user;
 }
 
@@ -151,7 +157,7 @@ export async function emailOf(userId: string): Promise<string | undefined> {
 
 export async function requireUser(): Promise<User> {
   const u = await getUser();
-  if (!u) redirect("/login");
+  if (!u) return toLogin();
   return u;
 }
 

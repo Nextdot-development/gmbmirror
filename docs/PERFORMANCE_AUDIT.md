@@ -46,7 +46,8 @@ on request, cached per user for an hour; growth recommendations only when their 
 | `/app/google` | 3,078 ms | 635 ms | 13 ms | 2 → 0 | 17 → 5 | 60 → 65 KB |
 | `/app/visibility` | 1,444 ms | 428 ms | 10 ms | 2 → 0 | 9 → 3 | 29 → 34 KB |
 
-(The `syd1` column was measured with the "after code fixes" build. HTML grew by ~5 KB per page: the loading
+(Measured before three pages were renamed: `/app/google` is now `/app/google-profile`, `/app/visibility` is
+`/app/ai-visibility`, `/app/chatgpt` is `/app/chatgpt-guide`; the old addresses redirect. The `syd1` column was measured with the "after code fixes" build. HTML grew by ~5 KB per page: the loading
 skeleton and the page-speed reporter.)
 
 Production public pages (from India, before any change): static pages 0.24–0.6 s (edge cache hit), `/login`

@@ -58,7 +58,7 @@ export function GoogleConnectionPanel({
   locations: GbpLocation[]; locError?: string; truncated?: boolean; changing: boolean;
 }) {
   const startHref = page === "settings" ? "/api/google/start?from=settings" : "/api/google/start";
-  const changeHref = page === "settings" ? "/app/settings?change=1#google" : "/app/google?change=1#conn";
+  const changeHref = page === "settings" ? "/app/settings?change=1#google" : "/app/google-profile?change=1#conn";
   const changingOrChoosing = changing || status === "choose_location";
   const devNote = process.env.NODE_ENV === "development";
   return (

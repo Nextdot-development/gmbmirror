@@ -3,7 +3,7 @@ import { expect, retype, submit, test } from "./support/fixtures";
 // Phase 1 feature: editing and deleting ChatGPT guide insights.
 
 test("insights: add, invalid edit refused, edit saves, delete, stale edit refused", async ({ page, context, account }) => {
-  await page.goto("/app/chatgpt");
+  await page.goto("/app/chatgpt-guide");
   for (const [date, label, value] of [["2026-10-01", "Profile views", "200"], ["2026-11-01", "Profile views", "240"]]) {
     await page.locator("#f-date").fill(date);
     await retype(page.locator("#f-label"), label);
@@ -30,20 +30,20 @@ test("insights: add, invalid edit refused, edit saves, delete, stale edit refuse
   await expect(main).toContainText("Say what the number is.");
   await expect(main).toContainText("2026-11-01: Profile views, 240");
 
-  await page.goto("/app/chatgpt");
+  await page.goto("/app/chatgpt-guide");
   await openEdit(0);
   await retype(editForm(0).getByLabel("Value"), "260");
   await submit(page, editForm(0).getByRole("button", { name: "Save changes" }));
-  await page.goto("/app/chatgpt");
+  await page.goto("/app/chatgpt-guide");
   await expect(main).toContainText("2026-11-01: Profile views, 260");
   await expect(main).not.toContainText("Profile views, 240");
 
   // A second tab deletes the first entry; the first tab, still showing it, then tries to edit it.
   const other = await context.newPage();
-  await other.goto("/app/chatgpt");
+  await other.goto("/app/chatgpt-guide");
   const otherRows = other.locator("main ul li").filter({ has: other.locator("details") });
   await submit(other, otherRows.first().getByRole("button", { name: "Delete" }));
-  await other.goto("/app/chatgpt");
+  await other.goto("/app/chatgpt-guide");
   await expect(other.locator("main")).not.toContainText("Profile views, 260");
   await expect(other.locator("main")).toContainText("Profile views, 200");
   await other.close();

@@ -30,6 +30,7 @@ import { defaultCategory, forgetGoogleValues } from "@/lib/business-sync";
 import type { Business, GoogleConnection, GoogleVerdict, GridScan, MonthlyReport, PostDraft, ReplyDraft, ReplyHistoryEntry } from "@/lib/types";
 import { metricsForHistory } from "@/lib/competition";
 import { historyFor, tagHistory } from "@/lib/listing-history";
+import { dashboardReturn } from "@/lib/return-to";
 import { categoryQuery, competitors, findPlaces, isNotFound, placeNames, placeSummary, profileAudit, rankGrid, validPlaceId, type AuditItem, type PlaceSummary } from "@/lib/places";
 import { GRID_SIZES, gridPointsPerDay, scanRequests, type GridSize } from "@/lib/grid";
 import { gridPointsUsed } from "@/lib/grid-server";
@@ -150,7 +151,8 @@ export async function logInAction(_: FormState, fd: FormData): Promise<FormState
   }
   await clearShared(clientKey);
   await rememberDevice(email);
-  redirect("/app");
+  // Back to the dashboard page that asked for a login (checked again here: the form field can be edited).
+  redirect(dashboardReturn(String(fd.get("next") ?? "")) ?? "/app");
 }
 
 /** "Forgot password": sends a reset link if the account exists; the answer never says whether it does. */
@@ -449,7 +451,7 @@ export async function disconnectGoogleAction(fd: FormData) {
     after(() => notifySecurity(user, "google_disconnected", `Google account: ${conn.email ?? "unknown"}${name ? `, location: ${name}` : ""}.`).then(() => undefined, () => undefined));
   }
   revalidatePath("/app", "layout");
-  const page = fd?.get("back") === "settings" ? "/app/settings" : "/app/google";
+  const page = fd?.get("back") === "settings" ? "/app/settings" : "/app/google-profile";
   redirect(`${page}?disconnected=${shared ? "shared" : revoked ? "1" : "local"}`);
 }
 
@@ -874,7 +876,7 @@ export async function toggleGuideAction(fd: FormData) {
   if (!CHATGPT_PREPARE.some((i) => i.key === key)) return;
   g.done = { ...g.done, [key]: !g.done[key] };
   await db.saveProgress(scope, g);
-  revalidatePath("/app/chatgpt");
+  revalidatePath("/app/chatgpt-guide");
 }
 
 export async function saveGuideNotesAction(_: FormState, fd: FormData): Promise<FormState> {
@@ -882,7 +884,7 @@ export async function saveGuideNotesAction(_: FormState, fd: FormData): Promise<
   const g = await db.getProgress(scope);
   g.notes = String(fd.get("notes") ?? "").slice(0, 4000);
   await db.saveProgress(scope, g);
-  revalidatePath("/app/chatgpt");
+  revalidatePath("/app/chatgpt-guide");
   return { ok: "Notes saved." };
 }
 
@@ -899,7 +901,7 @@ export async function addInsightAction(_: FormState, fd: FormData): Promise<Form
   const g = await db.getProgress(scope);
   g.insights = [parsed.data, ...g.insights].slice(0, 50);
   await db.saveProgress(scope, g);
-  revalidatePath("/app/chatgpt");
+  revalidatePath("/app/chatgpt-guide");
   return { ok: "Added." };
 }
 
@@ -923,7 +925,7 @@ export async function editInsightAction(_: FormState, fd: FormData): Promise<For
   if (!found) return { error: "This entry changed or was removed. Reload the page and try again." };
   g.insights[n] = parsed.data;
   await db.saveProgress(scope, g);
-  revalidatePath("/app/chatgpt");
+  revalidatePath("/app/chatgpt-guide");
   return { ok: "Saved." };
 }
 
@@ -933,7 +935,7 @@ export async function deleteInsightAction(_: FormState, fd: FormData): Promise<F
   if (!found) return { error: "This entry changed or was removed. Reload the page and try again." };
   g.insights.splice(n, 1);
   await db.saveProgress(scope, g);
-  revalidatePath("/app/chatgpt");
+  revalidatePath("/app/chatgpt-guide");
   return {};
 }
 
@@ -1093,7 +1095,7 @@ export async function explainCompetitorsAction(): Promise<FormState> {
       fresh.competitors![i] = { ...fresh.competitors![i], explanation: text };
       await db.savePlaces(scope, fresh);
     }
-    revalidatePath("/app/google");
+    revalidatePath("/app/google-profile");
     return { ok: "Explained." };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Could not explain the comparison." };
@@ -1128,7 +1130,7 @@ export async function rankScanAction(_: GridState, fd: FormData): Promise<GridSt
     const { ranks, leaders } = await rankGrid(b.placeId, keyword, radiusKm, size);
     const scan: GridScan = { id: randomUUID(), keyword, radiusKm, size, ranks, leaders, at: new Date().toISOString(), placeId: b.placeId };
     await db.updatePlaces(scope, (h) => ({ ...h, scans: [scan, ...h.scans].slice(0, 30) }));
-    revalidatePath("/app/google");
+    revalidatePath("/app/google-profile");
     return { ok: `Scan saved: ${size * size} points, ${scanRequests(size)} Google Places requests. ${Math.max(0, allowance - used - size * size)} of ${allowance} grid points left for today.` };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "The scan failed." };
@@ -1160,7 +1162,7 @@ export async function refreshInsightsAction(): Promise<FormState> {
   const rl = await takeShared(`gbp-refresh:${user.id}`, LIMITS.gbpRefreshPerUser);
   if (!rl.ok) return { error: waitMessage("updates", rl.retryAfterSec) };
   const { error } = await refreshInsights(scope);
-  revalidatePath("/app/google");
+  revalidatePath("/app/google-profile");
   return error ? { error } : { ok: "Insights updated from Google." };
 }
 
@@ -1181,7 +1183,7 @@ export async function explainInsightsAction(): Promise<FormState> {
   try {
     const text = await explainInsights(b, `Period ${ins.current.start} to ${ins.current.end}.\n${facts}`);
     await db.updateGoogle(scope, conn.connectedAt, (cur) => (cur.insights?.at === ins.at ? { ...cur, insights: { ...cur.insights, explanation: { at: new Date().toISOString(), text } } } : cur));
-    revalidatePath("/app/google");
+    revalidatePath("/app/google-profile");
     return { ok: "Explained." };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Could not explain the numbers." };

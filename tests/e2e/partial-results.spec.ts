@@ -6,7 +6,7 @@ test.use({ baseURL: PARTIAL_URL });
 
 test("one provider fails: the other's answers are saved, scored and the failure is shown", async ({ page, account }) => {
   await mockAI("answer", "Try Zentrix Skin Clinic.");
-  await page.goto("/app/visibility");
+  await page.goto("/app/ai-visibility");
   const main = page.locator("main");
   await expect(main).toContainText("ChatGPT (OpenAI API): on");
   await expect(main).toContainText("Claude: on");
@@ -26,7 +26,7 @@ test("one provider fails: the other's answers are saved, scored and the failure 
 
 test("every provider fails: errors shown, nothing saved; partial checks count toward the limit", async ({ page, account }) => {
   await mockAI("500");
-  await page.goto("/app/visibility");
+  await page.goto("/app/ai-visibility");
   await submit(page, "Run a new check");
   const main = page.locator("main");
   await expect(main).toContainText("Claude is having problems (500)");
@@ -35,11 +35,11 @@ test("every provider fails: errors shown, nothing saved; partial checks count to
 
   await mockAI("answer", "Try Zentrix Skin Clinic.");
   for (let i = 0; i < 6; i++) {
-    await page.goto("/app/visibility");
+    await page.goto("/app/ai-visibility");
     await submit(page, "Run a new check");
     await expect(main).toContainText("Check saved with partial results");
   }
-  await page.goto("/app/visibility");
+  await page.goto("/app/ai-visibility");
   await submit(page, "Run a new check");
   await expect(main).toContainText("Too many visibility checks");
   expect(account.data().checks).toHaveLength(6);

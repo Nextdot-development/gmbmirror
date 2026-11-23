@@ -1,18 +1,24 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { supabaseCookieOptions, supabasePublicKey } from "@/lib/supabase-cookies";
+import { ASKED_HEADER } from "@/lib/return-to";
 
 /**
  * Keeps Supabase sessions alive. Server Components cannot write cookies, so a session refreshed while
  * rendering a page was thrown away and the user was logged out when the access token ran out.
  * This runs before the page, refreshes the session if needed (getClaims: a local check otherwise), and writes the new cookies to both the
  * request (so the page sees them) and the response (so the browser keeps them).
- * In demo mode it does nothing.
+ * In demo mode it only records the page asked for (below).
  */
 export async function proxy(request: NextRequest) {
+  // The dashboard page asked for, so a signed-out visitor sent to log in comes back to it (session.ts requireUser).
+  // Always set here (any copy sent by the browser is replaced); only page loads, never form posts, carry it.
+  const asked = request.method === "GET" && request.nextUrl.pathname.startsWith("/app") ? request.nextUrl.pathname + request.nextUrl.search : "";
+  request.headers.set(ASKED_HEADER, asked);
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = supabasePublicKey();
-  if (process.env.APP_MODE !== "supabase" || !url || !key) return NextResponse.next();
+  if (process.env.APP_MODE !== "supabase" || !url || !key) return NextResponse.next({ request });
 
   let response = NextResponse.next({ request });
   const supabase = createServerClient(url, key, {

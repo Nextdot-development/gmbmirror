@@ -55,12 +55,12 @@ test("the location matching the Settings listing is chosen automatically; switch
   await connectedToSaheedNagar(page);
   await expect(page.locator("main")).toContainText("This location is the same Google listing as in Settings.");
   await expect(page.locator("section", { has: page.locator("#bp-h") })).toContainText("Verified on Google");
-  await page.goto("/app/google?change=1");
+  await page.goto("/app/google-profile?change=1");
   await page.getByRole("radio", { name: /Glow Salon/ }).check();
   await submit(page, "Use this location");
   // The managed location is the owner's listing: the public listing follows it, and old history stays with the old one.
   await expect.poll(() => account.data().business.placeId).toBe("ChIJe2eSalon0000001");
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
   await expect(page.getByTestId("listing-mismatch")).toHaveCount(0);
   await expect(page.locator("main")).toContainText("This location is the same Google listing as in Settings.");
   await page.goto("/app");
@@ -273,7 +273,7 @@ test("Google errors: permission, quota, API off and outage each get a plain mess
   await gbpMode({ fail: "permission", failPath: "/reviews" });
   await page.goto("/app/reviews");
   await expect(page.locator("main").getByRole("alert")).toHaveText("Your Google account does not have permission for this business location. Sign in with an account that owns or manages it.");
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
   await expect(page.getByTestId("gbp-last-error")).toContainText("Last problem (reviews");
 
   await gbpMode({ fail: "quota", failPath: "/reviews" });
@@ -300,7 +300,7 @@ test("Google errors: permission, quota, API off and outage each get a plain mess
 
   await gbpMode({ fail: "scope", failPath: "/reviews", failMethod: "" });
   await page.goto("/app/reviews");
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
   await expect(status(page)).toHaveText("Reconnect needed");
 });
 
@@ -347,7 +347,7 @@ test("a different Google account does not inherit the location; disconnect revok
 
 test("live Google pages fit the screen", async ({ page, account }) => {
   await connectedToSaheedNagar(page);
-  for (const path of ["/app/google", "/app/google?change=1", "/app/reviews", "/app/reviews?show=replied", "/app/posts"]) {
+  for (const path of ["/app/google-profile", "/app/google-profile?change=1", "/app/reviews", "/app/reviews?show=replied", "/app/posts"]) {
     await page.goto(path);
     expect(await sideways(page), path).toBeLessThanOrEqual(0);
   }

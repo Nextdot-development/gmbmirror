@@ -8,7 +8,7 @@ test.use({ baseURL: PARTIAL_URL });
 test.beforeEach(async ({ page, account }) => {
   // Google rejects this server's key, so the listing is saved without the check (the owner is offered that).
   await setGoogleListing(page, "ChIJmarqE63mDDkRd228dtR6wDs");
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
 });
 
 test("Google's own reason is shown, never the key", async ({ page }) => {

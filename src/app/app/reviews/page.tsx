@@ -69,7 +69,7 @@ export default async function Reviews({ searchParams }: { searchParams: Promise<
               "Your real Google reviews will appear here once the Google Business Profile connection is switched on."}
           </p>
           {status === "reconnect" || status === "choose_location" || status === "not_connected" ? (
-            <Link href="/app/google" className="btn btn-secondary btn-sm mt-3">Open Google profile</Link>
+            <Link href="/app/google-profile" className="btn btn-secondary btn-sm mt-3">Open Google profile</Link>
           ) : null}
         </div>
       ) : (

@@ -62,7 +62,7 @@ test("exact match: results are shown, nothing is chosen until Select, then it is
   await toDashboard(page);
 
   // The saved listing feeds the existing Places features.
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
   await submit(page, page.locator("section", { has: page.locator("#pa-h") }).getByRole("button", { name: "Run profile audit" }));
   await expect(page.locator("section", { has: page.locator("#pa-h") })).toContainText("100 / 100");
 });
@@ -151,7 +151,7 @@ test.describe("existing businesses", () => {
 
   test("Settings shows the saved listing; changing it asks first and keeps details and history", async ({ page, account }) => {
     await setGoogleListing(page, PLACE.hospital);
-    await page.goto("/app/google");
+    await page.goto("/app/google-profile");
     await submit(page, page.locator("section", { has: page.locator("#pa-h") }).getByRole("button", { name: "Run profile audit" }));
     await expect(page.locator("section", { has: page.locator("#pa-h") })).toContainText("100 / 100");
 
@@ -258,7 +258,7 @@ test("the chosen listing stays linked after refresh, logout and login, editing d
   await expect(page.locator("main")).toContainText("Business details saved");
   expect(account.data().business).toMatchObject({ location: "Pune West", category: "Hospital", placeId: PLACE.hospital });
   await listed();
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
   await expect(page.locator("main")).toContainText(`placeid=${PLACE.hospital}`);
 });
 
@@ -268,7 +268,7 @@ test.describe("history after changing the listing", () => {
   test("old audits and scans stay with the old listing and come back if it is chosen again", async ({ page, account }) => {
     const audit = () => page.locator("section", { has: page.locator("#pa-h") });
     const runAudit = async () => {
-      await page.goto("/app/google");
+      await page.goto("/app/google-profile");
       await submit(page, audit().getByRole("button", { name: /Run profile audit|Run again/ }));
       await expect(audit()).toContainText("/ 100");
       await page.reload();
@@ -280,7 +280,7 @@ test.describe("history after changing the listing", () => {
     await expect(audit()).toContainText("100 / 100");
 
     await setGoogleListing(page, PLACE.salon); // asks to replace, then saves
-    await page.goto("/app/google");
+    await page.goto("/app/google-profile");
     await expect(audit()).toContainText("No audits saved yet");
     await expect(page.getByTestId("earlier-listing-history")).toContainText("1 audit, 1 rank scan, 0 comparisons");
     await expect(page.locator("section", { has: page.locator("#grid-h") })).not.toContainText("“hospital”");
@@ -295,7 +295,7 @@ test.describe("history after changing the listing", () => {
     await expect(page.locator("section", { has: page.locator("#chg-h") })).not.toContainText("Profile audit score");
 
     await setGoogleListing(page, PLACE.hospital);
-    await page.goto("/app/google");
+    await page.goto("/app/google-profile");
     await expect(audit().getByRole("img", { name: /Profile audit score over time/ })).toHaveAttribute("aria-label", /^Profile audit score over time: \d+ \w+ \d{4} 100$/); // only the hospital's audit
     await expect(page.getByTestId("earlier-listing-history")).toContainText("1 audit, 0 rank scans");
     await expect(page.locator("section", { has: page.locator("#grid-h") })).toContainText("“hospital”");

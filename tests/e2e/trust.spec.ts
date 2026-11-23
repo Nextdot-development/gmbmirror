@@ -63,7 +63,7 @@ test.describe("public trust pages", () => {
 
 test("Google page: the permission explainer lists exactly the scopes requested, what is read and done, and the policies", async ({ page, account }) => {
   expect(account.email).toContain("@");
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
   const box = page.getByTestId("google-permissions");
   await expect(box.getByTestId("google-scopes")).toContainText("business.manage");
   await expect(box.getByTestId("google-scopes").locator("li")).toHaveCount(2);

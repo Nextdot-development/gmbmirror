@@ -70,7 +70,7 @@ export async function notifySecurity(user: { id: string; email: string }, event:
       `When: ${new Date().toUTCString()}`,
       `If this was you, there is nothing to do. If it was not, reset your password now and write to ${BRAND.email}.`,
     ],
-    link: { href: app(event === "password_changed" ? "/forgot-password" : "/app/google"), label: event === "password_changed" ? "Reset my password" : "Review Google access" },
+    link: { href: app(event === "password_changed" ? "/forgot-password" : "/app/google-profile"), label: event === "password_changed" ? "Reset my password" : "Review Google access" },
   });
   return sendEmail({ to: user.email, subject: `${BRAND.name}: ${s.subject}`, text, html, kind: "security", userId: user.id });
 }

@@ -69,7 +69,7 @@ test("review link: custom message, copy actions counted honestly", async ({ page
   await page.locator("#f-reviewMessage").fill("Hi! Thanks for choosing {name}. A review helps others: {link}");
   await submit(page, "Save AI preferences");
   await expect(page.locator("main")).toContainText("AI preferences saved.");
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
   await expect(page.locator("p", { hasText: /^Message:/ })).toContainText("Thanks for choosing Zentrix Skin Clinic. A review helps others: https://search.google.com/local/writereview?placeid=ChIJtestPlace123");
   await page.getByRole("button", { name: "Copy link" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Review link copied." })).toBeVisible();
@@ -88,7 +88,7 @@ test("AI visibility: a service question when services are listed; answers labell
   await page.goto("/app/settings");
   await page.locator("#f-services").fill("Acne treatment\nHair fall consultation");
   await submit(page, "Save AI preferences");
-  await page.goto("/app/visibility");
+  await page.goto("/app/ai-visibility");
   await expect(page.locator("main")).toContainText("an estimate of how");
   const qs = await page.locator("details ul li").allTextContents();
   expect(qs.some((q) => q.startsWith("Where can I get acne treatment in Bhubaneswar?"))).toBe(true);

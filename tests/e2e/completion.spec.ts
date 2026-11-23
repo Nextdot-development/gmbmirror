@@ -27,7 +27,7 @@ function drawnGlyphs(pdf: Buffer): string[] {
 
 
 async function gridScan(page: Page, size: "3" | "5", keyword = "hospital") {
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
   await page.locator("#g-keyword").fill(keyword);
   await page.locator("#g-size").selectOption(size);
   await page.locator("#g-radius").selectOption("1");
@@ -39,7 +39,7 @@ test.describe("rank grid 5x5", () => {
 
   test("25 points, exact cost shown, competitors recorded at no extra cost, names on request, movement between scans", async ({ page, account }) => {
     await setGoogleListing(page, PLACE.hospital);
-    await page.goto("/app/google");
+    await page.goto("/app/google-profile");
     await page.locator("#g-size").selectOption("5");
     await expect(page.getByTestId("grid-cost")).toContainText("This scan makes 26 Google Places requests (1 to find your business on the map, then 25 searches) and uses 25 of your daily grid points.");
     await expect(page.getByTestId("grid-cost")).toContainText("75 of 75 points left");
@@ -97,7 +97,7 @@ test.describe("rank grid 5x5", () => {
     d[account.id]["loc:branch2:business"] = { name: "Branch", website: "", location: "Pune", category: "Hospital", type: "healthcare", audit: {}, createdAt: now };
     d[account.id]["loc:branch2:places"] = { profileScores: [], scans: [25, 25, 9].map((n, i) => ({ id: `x${i}`, keyword: "x", radiusKm: 1, size: n === 25 ? 5 : 3, ranks: Array(n).fill(null), at: now })) };
     writeData(d);
-    await page.goto("/app/google");
+    await page.goto("/app/google-profile");
     await expect(page.getByTestId("grid-cost")).toContainText("16 of 75 points left");
     await gridScan(page, "5");
     await expect(section(page, "grid-h").getByRole("alert")).toContainText("This scan needs 25 grid points, and 16 of your 75 daily points are left (all locations together). A 3 x 3 scan still fits.");

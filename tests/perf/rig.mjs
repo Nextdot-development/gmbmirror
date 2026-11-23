@@ -132,7 +132,7 @@ for (let i = 0; i < 120; i++) { try { if ((await fetch(`http://localhost:${appPo
 /* ---------- measure ---------- */
 const session = { access_token: ACCESS, token_type: "bearer", expires_in: 21600, expires_at: claims.exp, refresh_token: "perf-refresh", user: userJson };
 const cookie = `sb-localhost-auth-token=base64-${Buffer.from(JSON.stringify(session)).toString("base64url")}`;
-const PAGES = ["/app", "/app/reviews", "/app/posts", "/app/reports", "/app/locations", "/app/settings", "/app/google", "/app/visibility"];
+const PAGES = ["/app", "/app/reviews", "/app/posts", "/app/reports", "/app/locations", "/app/settings", "/app/google-profile", "/app/ai-visibility"];
 const rows = [];
 for (const p of PAGES) {
   const one = async () => {

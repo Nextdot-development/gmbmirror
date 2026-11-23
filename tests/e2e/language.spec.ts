@@ -34,7 +34,7 @@ for (const lang of ["hi", "hinglish", "en"] as const) {
     await submit(page, page.getByRole("button", { name: "Draft with Claude" }).first());
     await expect.poll(async () => (await aiCalls()).at(-1)?.system ?? "").toContain(rule[lang]);
 
-    await page.goto("/app/google");
+    await page.goto("/app/google-profile");
     await expect(page.locator("p", { hasText: /^Message:/ })).toHaveText(whatsapp[lang]);
   });
 }

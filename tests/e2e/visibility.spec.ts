@@ -35,7 +35,7 @@ test("visibility: custom questions asked, alias counts, possible match not count
   await submit(page, "Save AI preferences");
   await expect(page.locator("main")).toContainText("AI preferences saved");
 
-  await page.goto("/app/visibility");
+  await page.goto("/app/ai-visibility");
   const main = page.locator("main");
   const questions = await page.locator("details ul li").allTextContents();
   expect(questions).toHaveLength(4);
@@ -57,7 +57,7 @@ test("visibility: custom questions asked, alias counts, possible match not count
 
   // Check 2: an alias in the answer counts as named.
   await mockAI("answer", "Many patients choose Dr Rao Skin Care near Saheed Nagar.");
-  await page.goto("/app/visibility");
+  await page.goto("/app/ai-visibility");
   await submit(page, "Run a new check");
   await expect(main).toContainText("+100 vs previous check");
   text = await main.innerText();
@@ -67,7 +67,7 @@ test("visibility: custom questions asked, alias counts, possible match not count
 
   // Check 3: a close variant is a possible match, shown as written and not counted.
   await mockAI("answer", "Zentrix Skin & Hair Clinic in Patia is popular.");
-  await page.goto("/app/visibility");
+  await page.goto("/app/ai-visibility");
   await submit(page, "Run a new check");
   await expect(main).toContainText("-100 vs previous check");
   text = await main.innerText();
@@ -96,7 +96,7 @@ test("visibility: custom questions asked, alias counts, possible match not count
 
   // Check 4: exact name again; the AI fix list fails, so the fixed list is shown.
   await mockAI("nofix", "Try Zentrix Skin Clinic.");
-  await page.goto("/app/visibility");
+  await page.goto("/app/ai-visibility");
   await submit(page, "Run a new check");
   await expect(main).toContainText("+100 vs previous check");
   await expect(main).toContainText("Put your business name, city, services and phone number in plain text");
@@ -106,18 +106,18 @@ test("visibility: custom questions asked, alias counts, possible match not count
 
 test("a check where every provider fails saves nothing and does not use up the hourly limit", async ({ page, account }) => {
   await mockAI("500");
-  await page.goto("/app/visibility");
+  await page.goto("/app/ai-visibility");
   await submit(page, "Run a new check");
   await expect(page.locator("main")).toContainText("Claude is having problems (500)");
   expect(account.data().checks ?? []).toHaveLength(0);
 
   await mockAI("answer", "Try Zentrix Skin Clinic.");
   for (let i = 0; i < 6; i++) {
-    await page.goto("/app/visibility");
+    await page.goto("/app/ai-visibility");
     await submit(page, "Run a new check");
     await expect(page.locator("main")).not.toContainText("Too many visibility checks");
   }
-  await page.goto("/app/visibility");
+  await page.goto("/app/ai-visibility");
   await submit(page, "Run a new check");
   await expect(page.locator("main")).toContainText("Too many visibility checks");
   expect(account.data().checks).toHaveLength(6);

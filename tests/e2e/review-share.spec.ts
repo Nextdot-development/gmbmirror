@@ -5,7 +5,7 @@ import { expect, setGoogleListing, test } from "./support/fixtures";
 
 test.beforeEach(async ({ page, account }) => {
   await setGoogleListing(page, "ChIJtestPlace123");
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
 });
 
 test("WhatsApp link: message, review link and phone number handling", async ({ page, context }) => {

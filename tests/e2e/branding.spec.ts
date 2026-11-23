@@ -61,7 +61,7 @@ test.describe("public pages", () => {
 });
 
 test("signed-in pages: the name in the sidebar and titles, support email in Settings, the report PDF footer", async ({ page, account }) => {
-  for (const path of ["/app", "/app/google", "/app/reviews", "/app/posts", "/app/visibility", "/app/chatgpt", "/app/reports", "/app/locations", "/app/settings"]) {
+  for (const path of ["/app", "/app/google-profile", "/app/reviews", "/app/posts", "/app/ai-visibility", "/app/chatgpt-guide", "/app/reports", "/app/locations", "/app/settings"]) {
     await page.goto(path);
     await expect(page).toHaveTitle(/\| GMBmirror$/);
     await expect(page.getByRole("link", { name: "GMBmirror home" })).toBeVisible();

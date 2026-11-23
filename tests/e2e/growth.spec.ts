@@ -19,14 +19,14 @@ async function setBusiness(page: Page, o: { local?: boolean; category: string; p
 }
 
 async function runAudit(page: Page) {
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
   await submit(page, section(page, "pa-h").getByRole("button", { name: /Run profile audit|Run again/ }));
   await expect(section(page, "pa-h")).toContainText("/ 100");
 }
 
 async function runGrid(page: Page, ranks: (number | null)[]) {
   await placesMode({ grid: ranks });
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
   await page.locator("#g-keyword").fill("hospital");
   await page.locator("#g-radius").selectOption("3");
   await submit(page, section(page, "grid-h").getByRole("button", { name: "Run grid scan" }));
@@ -131,7 +131,7 @@ test("hospital: category, verified checklist, competitor gaps, rank history, Cla
 test("salon: owner-vs-Google conflict, competitor gaps, unusable Claude answer, and audit history", async ({ page, account }) => {
   await setBusiness(page, { local: true, category: "Salon", placeId: PLACE.salon });
   // The owner says the website is listed before any audit.
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
   await submit(page, checklistRow(page, "Website is listed").getByRole("button", { pressed: false }));
   await runAudit(page);
   await expect(section(page, "pa-h")).toContainText("30 / 100");
@@ -206,7 +206,7 @@ test("a category saved by an older version shows its new name and keeps working"
   await expect(page.locator("#f-category")).toHaveValue("Doctor / Clinic");
   await page.goto("/app");
   await expect(page.locator("header")).toContainText("Doctor / Clinic");
-  await page.goto("/app/visibility");
+  await page.goto("/app/ai-visibility");
   await expect(page.locator("main")).toContainText("Which are the best clinics in Bhubaneswar");
 });
 

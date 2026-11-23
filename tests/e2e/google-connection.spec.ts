@@ -6,7 +6,7 @@ import { expect, PARTIAL_URL, readData, submit, test, writeData } from "./suppor
 const connection = (page: import("@playwright/test").Page) => page.locator("section", { has: page.getByRole("heading", { name: "Connection" }) });
 
 test("not connected: status, connect button, and the OAuth redirect it starts", async ({ page, account, baseURL }) => {
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
   await expect(page.getByTestId("gbp-status")).toHaveText("Not connected");
   const connect = page.getByRole("link", { name: "Connect Google Business Profile" });
   await expect(connect).toHaveAttribute("href", "/api/google/start");
@@ -49,7 +49,7 @@ test("callback errors: cancelled, forged or missing state, and a code Google rej
   await expect(page.locator('p[role="alert"]')).toHaveText("Google did not accept the sign in. Try again.");
   expect(account.data().google).toBeUndefined();
 
-  await page.goto("/app/google?error=something-else");
+  await page.goto("/app/google-profile?error=something-else");
   await expect(page.locator('p[role="alert"]')).toHaveText("Something went wrong.");
 });
 
@@ -66,7 +66,7 @@ test("connected (stored connection): account, location, not-switched-on note, an
   };
   writeData(d);
 
-  await page.goto("/app/google?connected=1");
+  await page.goto("/app/google-profile?connected=1");
   await expect(page.getByRole("status")).toHaveText("Google account connected.");
   const section = connection(page);
   await expect(section).toContainText("Connected as owner@example.test on");
@@ -91,7 +91,7 @@ test.describe("Google sign-in not set up on the server", () => {
   test.use({ baseURL: PARTIAL_URL });
 
   test("a clear 'coming soon' status, a disabled button, and no server settings shown to the customer", async ({ page, account }) => {
-    await page.goto("/app/google");
+    await page.goto("/app/google-profile");
     await expect(page.getByTestId("gbp-status")).toHaveText("Coming soon");
     const connect = page.getByRole("link", { name: "Connect Google Business Profile" });
     await expect(connect).toHaveAttribute("aria-disabled", "true");

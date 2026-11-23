@@ -48,6 +48,14 @@ const config: NextConfig = {
     "/app/reports": PDF_FILES,
     "/api/jobs/run": PDF_FILES,
   },
+  // Old dashboard addresses (in bookmarks and emails already sent) lead to the renamed pages, keeping ?query and #part.
+  async redirects() {
+    return [
+      { source: "/app/google", destination: "/app/google-profile", permanent: true },
+      { source: "/app/visibility", destination: "/app/ai-visibility", permanent: true },
+      { source: "/app/chatgpt", destination: "/app/chatgpt-guide", permanent: true },
+    ];
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

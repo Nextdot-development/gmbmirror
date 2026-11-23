@@ -3,7 +3,7 @@ import { expect, sideways, test } from "./support/fixtures";
 // Phase 1 feature: mobile navigation hint. Plus no sideways scrolling on the app pages.
 // Runs in the desktop, tablet and mobile projects (see playwright.config.ts).
 
-const PAGES = ["/app", "/app/google", "/app/reviews", "/app/posts", "/app/visibility", "/app/chatgpt", "/app/settings"];
+const PAGES = ["/app", "/app/google-profile", "/app/reviews", "/app/posts", "/app/ai-visibility", "/app/chatgpt-guide", "/app/settings"];
 
 test("no sideways scroll and no duplicate element ids on the 7 app pages", async ({ page, account }) => {
   const overflow: string[] = [];

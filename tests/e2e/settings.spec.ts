@@ -39,9 +39,9 @@ test("a new business name and city are used on every page and in AI drafts", asy
   await page.goto("/app");
   await expect(page.locator("main h1")).toHaveText("Zentrix Skin & Hair Clinic");
   await expect(page.locator("header")).toContainText("Cuttack");
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
   await expect(page.locator("p", { hasText: /^Message:/ })).toContainText("Thank you for visiting Zentrix Skin & Hair Clinic");
-  await page.goto("/app/visibility");
+  await page.goto("/app/ai-visibility");
   await expect(page.locator("main")).toContainText("Checking: Zentrix Skin & Hair Clinic");
   expect((await page.locator("details ul li").allTextContents()).some((q) => q.includes("in Cuttack"))).toBe(true);
   await page.goto("/app/reviews");
@@ -105,7 +105,7 @@ test("changing the type or category updates questions, comparisons and the dashb
   await page.goto("/app/settings");
   await page.locator("#f-category").selectOption("Hospital");
   await saveBusiness(page);
-  await page.goto("/app/google");
+  await page.goto("/app/google-profile");
   const cmp = page.locator("section", { has: page.locator("#cmp-h") });
   await submit(page, cmp.getByRole("button", { name: "Compare with competitors" }));
   await expect.poll(() => account.data().places?.competitors?.[0]?.query).toBe("hospitals in Bhubaneswar");
@@ -119,7 +119,7 @@ test("changing the type or category updates questions, comparisons and the dashb
   await page.goto("/app");
   await expect(page.locator("header")).toContainText("Eye Hospital");
   await expect(page.locator("main")).toContainText("No comparison yet.");
-  await page.goto("/app/visibility");
+  await page.goto("/app/ai-visibility");
   expect((await page.locator("details ul li").allTextContents()).some((q) => q.includes("eye hospitals in Bhubaneswar"))).toBe(true);
   expect(account.data().places.competitors).toHaveLength(1); // kept in history, just not shown as current
 

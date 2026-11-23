@@ -135,7 +135,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
             </>
           ) : (
             <p className="body-6 mt-3 text-muted">
-              No comparison yet. {b.placeId ? <Link href="/app/google" className="underline">Compare with competitors</Link> : <Link href="/app/settings" className="underline">Add your Google Place ID</Link>} to see where nearby businesses are ahead.
+              No comparison yet. {b.placeId ? <Link href="/app/google-profile" className="underline">Compare with competitors</Link> : <Link href="/app/settings" className="underline">Add your Google Place ID</Link>} to see where nearby businesses are ahead.
             </p>
           )}
         </section>
@@ -170,7 +170,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           <h2 id="vtrend-h" className="heading-6">AI visibility score</h2>
           <TrendBars label="AI visibility score over time" points={checks.map((c) => ({ at: c.checkedAt, value: checkScore(c) }))}
             empty="No visibility checks yet. Run one on the AI visibility page." />
-          <p className="mt-3"><Link href="/app/visibility" className="btn btn-ghost btn-sm">{checks.length ? "Run a new visibility check" : "Run your first visibility check"}</Link></p>
+          <p className="mt-3"><Link href="/app/ai-visibility" className="btn btn-ghost btn-sm">{checks.length ? "Run a new visibility check" : "Run your first visibility check"}</Link></p>
           <Source>AI visibility checks performed by this product</Source>
         </section>
       </div>

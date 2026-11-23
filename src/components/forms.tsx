@@ -13,10 +13,11 @@ import { defaultCategory } from "@/lib/business-sync";
 
 const init: FormState = {};
 
-export function AuthForm({ mode }: { mode: "login" | "signup" }) {
+export function AuthForm({ mode, next }: { mode: "login" | "signup"; next?: string }) {
   const [s, action] = useActionState(mode === "login" ? logInAction : signUpAction, init);
   return (
     <form action={action} className="flex flex-col gap-4" key={JSON.stringify(s.values ?? {})}>
+      {next ? <input type="hidden" name="next" value={next} /> : null}
       <Field label="Email" name="email" type="email" autoComplete="email" required defaultValue={s.values?.email} error={s.fieldErrors?.email} />
       <Field
         label="Password" name="password" type="password" required

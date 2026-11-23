@@ -29,5 +29,5 @@ export async function GET(req: NextRequest) {
 
 /** Only these pages can be returned to, so the parameter cannot redirect anywhere else. */
 function returnPage(from: string | null): string {
-  return from === "onboarding" ? "/app/onboarding/connect" : from === "settings" ? "/app/settings" : "/app/google";
+  return from === "onboarding" ? "/app/onboarding/connect" : from === "settings" ? "/app/settings" : "/app/google-profile";
 }

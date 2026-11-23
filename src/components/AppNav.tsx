@@ -6,11 +6,11 @@ import { Gauge, MapPinArea, ChatCircleText, Megaphone, MagnifyingGlass, ListChec
 
 const ITEMS = [
   { href: "/app", label: "Dashboard", icon: Gauge },
-  { href: "/app/google", label: "Google profile", icon: MapPinArea },
+  { href: "/app/google-profile", label: "Google profile", icon: MapPinArea },
   { href: "/app/reviews", label: "Reviews", icon: ChatCircleText },
   { href: "/app/posts", label: "Posts", icon: Megaphone },
-  { href: "/app/visibility", label: "AI visibility", icon: MagnifyingGlass },
-  { href: "/app/chatgpt", label: "ChatGPT guide", icon: ListChecks },
+  { href: "/app/ai-visibility", label: "AI visibility", icon: MagnifyingGlass },
+  { href: "/app/chatgpt-guide", label: "ChatGPT guide", icon: ListChecks },
   { href: "/app/reports", label: "Reports", icon: FileText },
   { href: "/app/locations", label: "Locations", icon: Storefront },
   { href: "/app/settings", label: "Settings", icon: GearSix },
@@ -43,7 +43,8 @@ export function AppNav() {
     <div className="relative">
     <nav ref={ref} aria-label="App" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 md:mx-0 md:flex-col md:overflow-visible md:p-0">
       {ITEMS.map((i) => {
-        const active = i.href === "/app" ? path === "/app" : path.startsWith(i.href);
+        // Its own page or a page under it (/app/reports/…), never a neighbour that only shares the prefix.
+        const active = path === i.href || (i.href !== "/app" && path.startsWith(`${i.href}/`));
         return (
           <Link key={i.href} href={i.href} aria-current={active ? "page" : undefined}
             className="side-link">

@@ -19,7 +19,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="min-h-screen md:grid md:grid-cols-[232px_minmax(0,1fr)]">
       <aside className="flex flex-col gap-3 border-b border-line bg-surface px-4 py-3 md:sticky md:top-0 md:h-screen md:gap-6 md:border-b-0 md:border-r md:px-3 md:py-5">
         <div className="px-1 md:px-2">
-          <Logo href="/app" />
+          {/* The brand leads to the public home page; "Dashboard" in the menu leads to /app. */}
+          <Logo href="/" />
         </div>
         {locations.length > 1 ? <LocationSwitcher locations={locations} active={idx.active} /> : null}
         <AppNav />

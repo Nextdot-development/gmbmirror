@@ -21,7 +21,7 @@ async function continueToConnect(page: Page) {
 }
 
 test("until a business is saved, every app page leads to onboarding", async ({ page, account }) => {
-  for (const path of ["/app", "/app/posts", "/app/reviews", "/app/google", "/app/visibility", "/app/settings", "/app/onboarding/connect"]) {
+  for (const path of ["/app", "/app/posts", "/app/reviews", "/app/google-profile", "/app/ai-visibility", "/app/settings", "/app/onboarding/connect"]) {
     await page.goto(path);
     await expect(page, path).toHaveURL(/\/app\/onboarding$/);
   }
@@ -148,7 +148,7 @@ test.describe("public listing fallback", () => {
     // Settings shows the saved listing, fetched fresh from Google (here the Places stand-in), instead of a raw ID box.
     await page.goto("/app/settings");
     await expect(page.getByLabel("Your Google listing")).toContainText("Test listing");
-    await page.goto("/app/google");
+    await page.goto("/app/google-profile");
     const href = await page.locator('a[href^="https://wa.me/"]').getAttribute("href");
     expect(decodeURIComponent(href!)).toContain("https://search.google.com/local/writereview?placeid=ChIJmarqE63mDDkRd228dtR6wDs");
   });
@@ -159,7 +159,7 @@ test.describe("public listing fallback", () => {
     await continueToConnect(page);
     await page.getByRole("link", { name: "Skip for now" }).click();
     await page.waitForURL(/\/app$/);
-    await page.goto("/app/google");
+    await page.goto("/app/google-profile");
     await expect(page.locator("main")).toContainText("Add your Google Place ID in Settings to generate your review link and QR code.");
     await expect(page.locator('a[href^="https://wa.me/"]')).toHaveCount(0);
   });

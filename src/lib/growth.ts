@@ -83,12 +83,12 @@ export function measures(d: GrowthData, rows: ChecklistRow[]): Measure[] {
   const done = checklistDone(rows);
   const out: Measure[] = [
     audit
-      ? { key: "profile", label: "Google profile", value: audit.score, at: audit.at, detail: `Profile audit score ${audit.score} / 100`, href: "/app/google" }
-      : { key: "profile", label: "Google profile", detail: "Not measured yet: run the profile audit", href: "/app/google" },
-    { key: "checklist", label: "Profile checklist", value: rows.length ? Math.round((done / rows.length) * 100) : undefined, detail: `${done} of ${rows.length} done (${checklistVerified(rows)} checked on Google)`, href: "/app/google#audit" },
+      ? { key: "profile", label: "Google profile", value: audit.score, at: audit.at, detail: `Profile audit score ${audit.score} / 100`, href: "/app/google-profile" }
+      : { key: "profile", label: "Google profile", detail: "Not measured yet: run the profile audit", href: "/app/google-profile" },
+    { key: "checklist", label: "Profile checklist", value: rows.length ? Math.round((done / rows.length) * 100) : undefined, detail: `${done} of ${rows.length} done (${checklistVerified(rows)} checked on Google)`, href: "/app/google-profile#audit" },
     check
-      ? { key: "visibility", label: "AI visibility", value: checkScore(check), at: check.checkedAt, detail: `Named in ${check.results.filter((r) => resultMatch(r) === "named").length} of ${check.results.length} AI answers`, href: "/app/visibility" }
-      : { key: "visibility", label: "AI visibility", detail: "Not measured yet: run an AI visibility check", href: "/app/visibility" },
+      ? { key: "visibility", label: "AI visibility", value: checkScore(check), at: check.checkedAt, detail: `Named in ${check.results.filter((r) => resultMatch(r) === "named").length} of ${check.results.length} AI answers`, href: "/app/ai-visibility" }
+      : { key: "visibility", label: "AI visibility", detail: "Not measured yet: run an AI visibility check", href: "/app/ai-visibility" },
   ];
   const known = snap?.metrics.filter((m) => m.known > 0) ?? [];
   out.push(
@@ -100,15 +100,15 @@ export function measures(d: GrowthData, rows: ChecklistRow[]): Measure[] {
           value: Math.round((known.reduce((s, m) => s + (m.known - m.ahead) / m.known, 0) / known.length) * 100),
           at: snap.at,
           detail: `Level with or ahead of most on ${known.filter((m) => m.ahead * 2 <= m.known).length} of ${known.length} measures`,
-          href: "/app/google",
+          href: "/app/google-profile",
         }
-      : { key: "competitors", label: "Against competitors", detail: "Not measured yet: run the competitor comparison", href: "/app/google" },
+      : { key: "competitors", label: "Against competitors", detail: "Not measured yet: run the competitor comparison", href: "/app/google-profile" },
   );
   if (scan) {
     const top3 = scan.ranks.filter((r) => r !== null && r <= 3).length;
-    out.push({ key: "local", label: "Local search rank", value: Math.round((top3 / scan.ranks.length) * 100), at: scan.at, detail: `Top 3 at ${top3} of ${scan.ranks.length} points for “${scan.keyword}”`, href: "/app/google" });
+    out.push({ key: "local", label: "Local search rank", value: Math.round((top3 / scan.ranks.length) * 100), at: scan.at, detail: `Top 3 at ${top3} of ${scan.ranks.length} points for “${scan.keyword}”`, href: "/app/google-profile" });
   } else {
-    out.push({ key: "local", label: "Local search rank", detail: "Not measured yet: run a rank grid scan", href: "/app/google" });
+    out.push({ key: "local", label: "Local search rank", detail: "Not measured yet: run a rank grid scan", href: "/app/google-profile" });
   }
   return out;
 }
@@ -152,13 +152,13 @@ export function candidates(d: GrowthData, rows: ChecklistRow[]): Candidate[] {
       steps: ["Open Settings.", "Press Find on Google next to Google Place ID, or paste the ID if you have it.", "Pick your business from the matches and save."],
       benefit: "Unlocks the profile audit, competitor comparison and rank grid, which feed every other recommendation." }));
   } else if (!audit) {
-    out.push(rec({ id: "run_audit", title: "Run your first Google profile audit", severity: 88, priority: "High", difficulty: "Easy", href: "/app/google",
+    out.push(rec({ id: "run_audit", title: "Run your first Google profile audit", severity: 88, priority: "High", difficulty: "Easy", href: "/app/google-profile",
       why: "The audit reads your public Google listing and shows what is missing, which is the starting point for every profile fix.",
       evidence: ["Your Place ID is saved, but no profile audit has been run yet."],
       steps: ["Open Google profile.", "Press Run profile audit.", "Come back here to see recommendations based on the result."],
       benefit: "Turns guesses about your profile into a checked list." }));
   } else if (now - Date.parse(audit.at) > 30 * DAY) {
-    out.push(rec({ id: "rerun_audit", title: "Run the profile audit again", severity: 50, priority: "Medium", difficulty: "Easy", href: "/app/google", measuredAt: audit.at,
+    out.push(rec({ id: "rerun_audit", title: "Run the profile audit again", severity: 50, priority: "Medium", difficulty: "Easy", href: "/app/google-profile", measuredAt: audit.at,
       why: "Your profile may have changed since the last check, and recommendations are only as fresh as the data behind them.",
       evidence: [`The last profile audit was on ${fmt(audit.at)}, ${Math.floor((now - Date.parse(audit.at)) / DAY)} days ago.`],
       steps: ["Open Google profile.", "Press Run again in the profile audit."], benefit: "Keeps the score, checklist and recommendations current." }));
@@ -166,19 +166,19 @@ export function candidates(d: GrowthData, rows: ChecklistRow[]): Candidate[] {
 
   if (items) {
     if ((items.status ?? 10) < 10)
-      out.push(rec({ id: "business_status", title: "Make Google show your business as open", severity: 100, priority: "Critical", difficulty: "Medium", href: "/app/google", measuredAt: audit.at,
+      out.push(rec({ id: "business_status", title: "Make Google show your business as open", severity: 100, priority: "Critical", difficulty: "Medium", href: "/app/google-profile", measuredAt: audit.at,
         why: "If Google shows the business as closed or does not say it is open, many people will not contact you at all.",
         evidence: [auditEvidence("your business as not open, or no business status")],
         steps: ["Sign in to your Google Business Profile.", "Check the business status and set it to open.", "If it says permanently or temporarily closed by mistake, correct it and save.", "Run the profile audit again in a few days."],
         benefit: "People searching can see that you are open." }));
     if ((items.photos ?? 15) < 15)
-      out.push(rec({ id: "photos", title: "Add more recent photos", severity: items.photos === 0 ? 82 : items.photos === 5 ? 76 : 58, priority: (items.photos ?? 0) <= 5 ? "High" : "Medium", difficulty: "Easy", href: "/app/google", measuredAt: audit.at, contentKind: "photos",
+      out.push(rec({ id: "photos", title: "Add more recent photos", severity: items.photos === 0 ? 82 : items.photos === 5 ? 76 : 58, priority: (items.photos ?? 0) <= 5 ? "High" : "Medium", difficulty: "Easy", href: "/app/google-profile", measuredAt: audit.at, contentKind: "photos",
         why: `Photos help ${who} decide before they call or visit, and a profile with few photos looks less active.`,
         evidence: [auditEvidence(PHOTO_TIER[items.photos ?? 0]), cmp("photos")],
         steps: ["Take clear photos of the entrance, reception or inside, your team and your main services.", "Use daylight and avoid people's faces unless they agree.", "Upload them to your Google Business Profile under Photos.", "Add a few new photos every month."],
         benefit: "A fuller, more trustworthy profile. It does not guarantee more calls or a higher position." }));
     if ((items.reviews ?? 20) < 20)
-      out.push(rec({ id: "reviews_count", title: `Ask every ${who === "patients" ? "patient" : "customer"} for a review`, severity: (items.reviews ?? 0) <= 5 ? 84 : (items.reviews ?? 0) <= 10 ? 70 : 52, priority: (items.reviews ?? 0) <= 10 ? "High" : "Medium", difficulty: "Medium", href: "/app/google", measuredAt: audit.at, contentKind: "review_request",
+      out.push(rec({ id: "reviews_count", title: `Ask every ${who === "patients" ? "patient" : "customer"} for a review`, severity: (items.reviews ?? 0) <= 5 ? 84 : (items.reviews ?? 0) <= 10 ? 70 : 52, priority: (items.reviews ?? 0) <= 10 ? "High" : "Medium", difficulty: "Medium", href: "/app/google-profile", measuredAt: audit.at, contentKind: "review_request",
         why: `The number of recent reviews is one of the first things ${who} look at, and it is something you can grow steadily.`,
         evidence: [auditEvidence(REVIEW_TIER[items.reviews ?? 0]), cmp("reviews")],
         steps: [`Share your review link or QR code with every ${who === "patients" ? "patient" : "customer"} after a visit, not only happy ones.`, "Use the WhatsApp share on the Google profile page.", "Place the printed QR code at the front desk.", "Reply to every review you receive."],
@@ -197,7 +197,7 @@ export function candidates(d: GrowthData, rows: ChecklistRow[]): Candidate[] {
     ];
     for (const [key, id, title, why, steps, severity, kind] of simple)
       if (items[key] === 0)
-        out.push(rec({ id, title, why, steps, severity, priority: "High", difficulty: id === "website" ? "Medium" : "Easy", href: "/app/google", measuredAt: audit.at, contentKind: kind,
+        out.push(rec({ id, title, why, steps, severity, priority: "High", difficulty: id === "website" ? "Medium" : "Easy", href: "/app/google-profile", measuredAt: audit.at, contentKind: kind,
           evidence: [auditEvidence(key === "category" ? "no primary category" : `no ${METRIC_NOUN[key]}`), cmp(key)], benefit: "A more complete profile that answers people's first questions." }));
     const phoneRow = rows.find((r) => r.key === "phone");
     if (phoneRow?.google?.verdict === "attention")
@@ -207,7 +207,7 @@ export function candidates(d: GrowthData, rows: ChecklistRow[]): Candidate[] {
         steps: ["Decide which number is correct.", "Update it on Google or in Settings so both match.", "Use the same number on your website."], benefit: "Consistent contact details." }));
     const catRow = rows.find((r) => r.key === "primary_category");
     if (catRow?.google?.verdict === "attention")
-      out.push(rec({ id: "category_fit", title: "Check that your Google category fits your business", severity: 64, priority: "High", difficulty: "Medium", href: "/app/google", measuredAt: audit.at,
+      out.push(rec({ id: "category_fit", title: "Check that your Google category fits your business", severity: 64, priority: "High", difficulty: "Medium", href: "/app/google-profile", measuredAt: audit.at,
         why: "If Google files you under a different category, you can be left out of the searches that matter most.",
         evidence: [`Profile audit on ${fmt(audit.at)}: Google's primary category does not fit the category you chose here (${categoryInfo(b.category, b.type).label}).`],
         steps: ["Look at the primary category in your Google Business Profile.", "If it is wrong, change it to the one that names your main service.", "If the category in this app is wrong, change it in Settings instead."], benefit: "You are compared and found under the right category." }));
@@ -215,7 +215,7 @@ export function candidates(d: GrowthData, rows: ChecklistRow[]): Candidate[] {
 
   if (snap) {
     if (snap.position === null)
-      out.push(rec({ id: "competitor_rank", title: `Get into the top results for “${snap.query}”`, severity: 60, priority: "Medium", difficulty: "Advanced", href: "/app/google", measuredAt: snap.at,
+      out.push(rec({ id: "competitor_rank", title: `Get into the top results for “${snap.query}”`, severity: 60, priority: "Medium", difficulty: "Advanced", href: "/app/google-profile", measuredAt: snap.at,
         why: "People rarely look past the first results, so not appearing there means fewer calls and visits.",
         evidence: [`Competitor comparison on ${fmt(snap.at)}: not in the top ${snap.compared} Google results for “${snap.query}”.`, ...competitorLines(snap).slice(1, 3)],
         steps: ["Work through the profile fixes listed here first.", "Keep collecting reviews from every customer.", "Make sure your website names your services and city in plain text.", "Compare again in a month."], benefit: "Over time, a profile that can compete with the businesses already shown." }));
@@ -230,7 +230,7 @@ export function candidates(d: GrowthData, rows: ChecklistRow[]): Candidate[] {
     if (share < 5 / 9) {
       const prev = previousOf(d.places.scans, scan);
       const prevTop3 = prev ? prev.ranks.filter((r) => r !== null && r <= 3).length : undefined;
-      out.push(rec({ id: "local_rank", title: `Show up more often nearby for “${scan.keyword}”`, severity: share <= 2 / 9 ? 68 : 52, priority: share <= 2 / 9 ? "High" : "Medium", difficulty: "Advanced", href: "/app/google", measuredAt: scan.at,
+      out.push(rec({ id: "local_rank", title: `Show up more often nearby for “${scan.keyword}”`, severity: share <= 2 / 9 ? 68 : 52, priority: share <= 2 / 9 ? "High" : "Medium", difficulty: "Advanced", href: "/app/google-profile", measuredAt: scan.at,
         why: "Searches from a little further away often show other businesses first, and those are customers you could be reaching.",
         evidence: [`Rank grid on ${fmt(scan.at)} for “${scan.keyword}” (${scan.radiusKm} km spacing): in the top 3 at ${top3} of ${scan.ranks.length} points${missing ? `, not in the top 20 at ${missing}` : ""}.`,
           prevTop3 !== undefined && prev ? `The previous scan for the same phrase (${fmt(prev.at)}) was in the top 3 at ${prevTop3} of ${prev.ranks.length} points.` : undefined],
@@ -240,14 +240,14 @@ export function candidates(d: GrowthData, rows: ChecklistRow[]): Candidate[] {
 
   const check = d.checks[0];
   if (!check) {
-    out.push(rec({ id: "run_visibility", title: "Run your first AI visibility check", severity: 55, priority: "Medium", difficulty: "Easy", href: "/app/visibility",
+    out.push(rec({ id: "run_visibility", title: "Run your first AI visibility check", severity: 55, priority: "Medium", difficulty: "Easy", href: "/app/ai-visibility",
       why: "More people now ask AI assistants for recommendations; this shows whether they name your business.",
       evidence: ["No AI visibility check has been run yet."], steps: ["Open AI visibility.", "Press Run a new check."], benefit: "A starting point you can track over time." }));
   } else {
     const score = checkScore(check);
     const named = check.results.filter((r) => resultMatch(r) === "named").length;
     if (score < 50)
-      out.push(rec({ id: "ai_visibility", title: "Help AI assistants find and name you", severity: score <= 25 ? 74 : 56, priority: score <= 25 ? "High" : "Medium", difficulty: "Medium", href: "/app/visibility", measuredAt: check.checkedAt, contentKind: "faq",
+      out.push(rec({ id: "ai_visibility", title: "Help AI assistants find and name you", severity: score <= 25 ? 74 : 56, priority: score <= 25 ? "High" : "Medium", difficulty: "Medium", href: "/app/ai-visibility", measuredAt: check.checkedAt, contentKind: "faq",
         why: "AI assistants mostly name businesses whose name, location and services are clearly written on the web.",
         evidence: [`AI visibility check on ${fmt(check.checkedAt)}: named in ${named} of ${check.results.length} answers (score ${score} / 100).`,
           d.checks[1] ? `The check before (${fmt(d.checks[1].checkedAt)}) scored ${checkScore(d.checks[1])} / 100.` : undefined],
@@ -262,11 +262,11 @@ export function candidates(d: GrowthData, rows: ChecklistRow[]): Candidate[] {
   }
 
   if (b.placeId && audit && !snap)
-    out.push(rec({ id: "run_competitors", title: "Compare yourself with nearby competitors", severity: 48, priority: "Medium", difficulty: "Easy", href: "/app/google",
+    out.push(rec({ id: "run_competitors", title: "Compare yourself with nearby competitors", severity: 48, priority: "Medium", difficulty: "Easy", href: "/app/google-profile",
       why: "Knowing where the top businesses near you are ahead shows which fixes matter most.",
       evidence: ["No competitor comparison has been run yet."], steps: ["Open Google profile.", "Press Compare with competitors."], benefit: "Recommendations based on real nearby businesses." }));
   if (b.placeId && audit && !scan)
-    out.push(rec({ id: "run_grid", title: "Check where you appear around your area", severity: 44, priority: "Medium", difficulty: "Easy", href: "/app/google",
+    out.push(rec({ id: "run_grid", title: "Check where you appear around your area", severity: 44, priority: "Medium", difficulty: "Easy", href: "/app/google-profile",
       why: "Your position changes with the searcher's location; a grid scan shows how far your visibility reaches.",
       evidence: ["No rank grid scan has been run yet."], steps: ["Open Google profile.", "Enter a phrase people search for, such as your main service.", "Press Run grid scan."], benefit: "A map of where you appear, to track over time." }));
 
@@ -281,7 +281,7 @@ export function candidates(d: GrowthData, rows: ChecklistRow[]): Candidate[] {
   for (const r of rows) {
     const o = owner[r.key];
     if (o && r.status === "unknown")
-      out.push(rec({ id: o.id, title: o.title, severity: o.severity, priority: "Medium", difficulty: "Easy", href: o.href ?? "/app/google#audit", checklistKey: r.key, contentKind: o.kind,
+      out.push(rec({ id: o.id, title: o.title, severity: o.severity, priority: "Medium", difficulty: "Easy", href: o.href ?? "/app/google-profile#audit", checklistKey: r.key, contentKind: o.kind,
         why: r.why, evidence: [`Not confirmed in your profile checklist. Google does not report this, so only you can check it.`], steps: o.steps, benefit: "A more complete profile." }));
   }
 

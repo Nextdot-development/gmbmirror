@@ -9,12 +9,15 @@ import { GbpError } from "@/lib/gbp-api";
 import { db } from "@/lib/store";
 import type { GoogleConnection } from "@/lib/types";
 
-const PAGES = ["/app/google", "/app/onboarding/connect", "/app/settings"];
+const PAGES = ["/app/google-profile", "/app/onboarding/connect", "/app/settings"];
+/** A sign-in started before the Google page moved (its signed cookie names the old address). */
+const MOVED: Record<string, string> = { "/app/google": "/app/google-profile" };
 
 export async function GET(req: NextRequest) {
   // The page that started the sign-in, from the signed cookie (checked against a fixed list).
   const signed = (unsign(req.cookies.get("g_pkce")?.value ?? "") ?? "").split("|");
-  const page = PAGES.includes(signed[3]) ? signed[3] : "/app/google";
+  const asked = MOVED[signed[3]] ?? signed[3];
+  const page = PAGES.includes(asked) ? asked : "/app/google-profile";
   const back = (q: string) => {
     const res = NextResponse.redirect(new URL(`${page}?${q}`, env.appUrl()));
     res.cookies.delete("g_state");
