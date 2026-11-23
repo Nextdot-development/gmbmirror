@@ -14,7 +14,7 @@ const card = (page: import("@playwright/test").Page, review: string) => page.loc
 async function connectedToSaheedNagar(page: import("@playwright/test").Page) {
   await setGoogleListing(page, "ChIJtestPlace123");
   await connectGoogle(page);
-  await expect(page).toHaveURL(/\/app\/google\?connected=1$/);
+  await expect(page).toHaveURL(/\/app\/google-profile\?connected=1$/);
   await expect(status(page)).toHaveText("Connected");
 }
 
@@ -318,7 +318,7 @@ test("the sign-in must be finished by the user who started it, with the PKCE coo
   expect(new URL(start.headers().location).searchParams.get("code_challenge_method")).toBe("S256");
   await page.context().clearCookies({ name: "g_pkce" });
   const back = await page.request.get(`/api/google/callback?code=e2e-good&state=${state}`, { maxRedirects: 0 });
-  expect(back.headers().location).toMatch(/\/app\/google\?error=state$/);
+  expect(back.headers().location).toMatch(/\/app\/google-profile\?error=state$/);
   expect((await gbpCalls()).calls.some((c) => c.path === "/oauth/token")).toBe(false);
   expect(account.data().google).toBeUndefined();
 });

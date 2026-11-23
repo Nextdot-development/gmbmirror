@@ -31,7 +31,7 @@ test("not connected: status, connect button, and the OAuth redirect it starts", 
 
 test("callback errors: cancelled, forged or missing state, and a code Google rejects", async ({ page, account }) => {
   await page.goto("/api/google/callback?error=access_denied");
-  await expect(page).toHaveURL(/\/app\/google\?error=denied$/);
+  await expect(page).toHaveURL(/\/app\/google-profile\?error=denied$/);
   await expect(page.locator('p[role="alert"]')).toHaveText("You cancelled the Google sign in. Nothing was connected.");
 
   const stateMessage = "The sign in could not be verified. Start the connection again.";
@@ -99,7 +99,7 @@ test.describe("Google sign-in not set up on the server", () => {
     await expect(connection(page)).toContainText("Connecting your Google Business Profile will be available here soon.");
     await expect(page.locator("main")).not.toContainText(/\.env|GOOGLE_CLIENT|GBP_API_APPROVED/);
     await page.goto("/api/google/start");
-    await expect(page).toHaveURL(/\/app\/google\?error=not_configured$/);
+    await expect(page).toHaveURL(/\/app\/google-profile\?error=not_configured$/);
     await expect(page.locator('p[role="alert"]')).toHaveText("Connecting Google Business Profile is not available yet. Please try again later.");
     // The callback refuses too, whatever it is sent.
     await page.goto("/api/google/callback?code=x&state=y");

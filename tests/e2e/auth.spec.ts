@@ -225,9 +225,11 @@ test.describe("login", () => {
 
 test.describe("sessions", () => {
   test("app pages need a session", async ({ page }) => {
+    // The login page remembers the page asked for (plain /login for the dashboard itself).
     for (const path of ["/app", "/app/settings", "/app/onboarding", "/app/ai-visibility"]) {
       await page.goto(path);
-      await expect(page, path).toHaveURL(/\/login$/);
+      const expected = path === "/app" ? "/login" : `/login?next=${encodeURIComponent(path)}`;
+      await expect(page, path).toHaveURL((u) => u.pathname + u.search === expected);
     }
     const r = await page.request.get("/api/google/start", { maxRedirects: 0 });
     expect(r.status()).toBeGreaterThanOrEqual(300);
@@ -267,7 +269,7 @@ test.describe("sessions", () => {
     await expect(page).toHaveURL(/\/login$/);
 
     await copy.page.goto("/app/onboarding");
-    await expect(copy.page).toHaveURL(/\/login$/);
+    await expect(copy.page).toHaveURL(/\/login\?next=%2Fapp%2Fonboarding$/);
     await copy.ctx.close();
   });
 
