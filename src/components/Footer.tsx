@@ -26,8 +26,18 @@ const COLS = [
     links: [
       { href: "/login", label: "Sign in" },
       { href: "/signup", label: "Create account" },
+    ],
+  },
+  {
+    title: "Trust",
+    links: [
+      { href: "/about", label: "About" },
       { href: "/privacy", label: "Privacy policy" },
       { href: "/terms", label: "Terms of service" },
+      { href: "/cookies", label: "Cookie policy" },
+      { href: "/data-deletion", label: "Data deletion" },
+      { href: "/security", label: "Security" },
+      { href: "/contact", label: "Contact us" },
     ],
   },
 ];
@@ -37,7 +47,7 @@ export function Footer() {
   return (
     <footer className="border-t border-line">
       <div className="mx-auto w-full max-w-[1200px] px-6 py-16">
-        <div className="grid gap-12 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
+        <div className="grid gap-12 sm:grid-cols-2 md:grid-cols-[1.4fr_1fr_1fr_1fr_1fr]">
           <div className="flex max-w-[360px] flex-col gap-4">
             <Logo />
             <p className="caption-2 text-muted">

@@ -1,8 +1,9 @@
 import "server-only";
+import { cache } from "react";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { env } from "./env";
-import { pgDelete, pgDeleteAccount, pgGet, pgListUserIds, pgSet, pgUpdate } from "./db-pg";
+import { pgBusinessNames, pgDelete, pgGetMany, pgDeleteAccount, pgGet, pgListUserIds, pgSet, pgUpdate } from "./db-pg";
 import type { Business, GoogleConnection, GrowthState, GuideProgress, PostDraft, ReplyDraft, VisibilityCheck, PlacesHistory } from "./types";
 
 /**
@@ -39,14 +40,37 @@ async function writeAll(all: Record<string, Record<string, unknown>>) {
   await fs.rename(tmp, FILE);
 }
 
+/**
+ * Supabase mode, page renders only: values already read in this render (or preloaded together with db.preload) are
+ * reused instead of read again. React's cache gives each request its own Map, and none at all outside a render
+ * (server actions, route handlers and background jobs always read the database). Any write in the render clears it,
+ * and every reader gets its own copy, so nothing stale or shared can be returned.
+ */
+const renderReads = cache(() => new Map<string, Promise<unknown>>());
+const readCache = () => (env.mode() === "supabase" ? renderReads() : undefined);
+const cacheKey = (userId: string, key: string) => `${userId}\u0000${key}`;
+const forgetReads = () => readCache()?.clear();
+
 async function getKey<T>(userId: string, key: string, fallback: T): Promise<T> {
   // A failed database read throws: it is never treated as "no data" (that sent people back to onboarding).
-  if (env.mode() === "supabase") return pgGet<T>(userId, key, fallback);
+  if (env.mode() === "supabase") {
+    const m = readCache();
+    const ck = cacheKey(userId, key);
+    let p = m?.get(ck);
+    if (!p) {
+      p = pgGet<unknown>(userId, key, null);
+      m?.set(ck, p);
+      p.catch(() => m?.delete(ck));
+    }
+    const v = await p;
+    return v === undefined || v === null ? fallback : (structuredClone(v) as T);
+  }
   const all = await demoRead();
   return (all[userId]?.[key] as T) ?? fallback;
 }
 
 async function setKey(userId: string, key: string, value: unknown): Promise<void> {
+  forgetReads();
   if (env.mode() === "supabase") return pgSet(userId, key, value);
   await serial(async () => {
     const all = await demoRead();
@@ -73,6 +97,7 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
  * in this process can land between the read and the write. `fn` returns undefined to leave the value as it is.
  */
 async function updateKey<T>(userId: string, key: string, fallback: T, fn: (cur: T) => T | undefined): Promise<T> {
+  forgetReads();
   // Supabase: one transaction holding a lock on this user's key, so it is atomic across every server instance.
   if (env.mode() === "supabase") return pgUpdate<T>(userId, key, fallback, fn);
   return serial(async () => {
@@ -87,6 +112,7 @@ async function updateKey<T>(userId: string, key: string, fallback: T, fn: (cur: 
 }
 
 async function delKey(userId: string, key: string) {
+  forgetReads();
   if (env.mode() === "supabase") return pgDelete(userId, key);
   await serial(async () => {
     const all = await demoRead();
@@ -169,6 +195,28 @@ export const db = {
   /** Read, change and write one per-user record as a single step (the job queue uses it to claim jobs). */
   updateUserKey: <T>(userId: string, key: string, fallback: T, fn: (cur: T) => T | undefined) => updateKey<T>(userId, key, fallback, fn),
 
+  /**
+   * Reads these records of one location (and its Google connection, with "google") in one round trip, for the
+   * current page render; later reads of them in the same render use the result. Supabase mode only; a no-op otherwise.
+   */
+  preload: async (s: Scope, keys: string[]) => {
+    const m = readCache();
+    if (!m) return;
+    const want = keys.map((k) => keyFor(s, k)).filter((k) => !m.has(cacheKey(s.userId, k)));
+    if (!want.length) return;
+    const batch = pgGetMany(s.userId, want);
+    for (const k of want) {
+      const p = batch.then((all) => all[k] ?? null);
+      m.set(cacheKey(s.userId, k), p);
+      p.catch(() => m.delete(cacheKey(s.userId, k)));
+    }
+    await batch.catch(() => undefined);
+  },
+  /** The business name of each location (one query in Supabase mode). */
+  getBusinessNames: async (userId: string, ids: string[]): Promise<Record<string, string | undefined>> => {
+    if (env.mode() === "supabase") return pgBusinessNames(userId);
+    return Object.fromEntries(await Promise.all(ids.map(async (id) => [id, (await db.getBusiness({ userId, loc: id }))?.name] as const)));
+  },
   getLocations: async (userId: string): Promise<LocationIndex> => normaliseIndex(await getKey<LocationIndex | null>(userId, "locations", null)),
   /** Saves the location list. "main" counts as removed exactly when `ids` leaves it out. */
   saveLocations: (userId: string, idx: LocationIndex) => setKey(userId, "locations", { active: idx.active, ids: idx.ids, mainRemoved: !idx.ids.includes(MAIN_LOCATION) }),
@@ -203,10 +251,14 @@ export const db = {
   /** Removes everything the user has, in every location ("Delete my data"). */
   deleteAccountData: async (userId: string) => {
     // Supabase: the account row; locations, records, connections and jobs go with it (foreign keys).
+    forgetReads();
     if (env.mode() === "supabase") return pgDeleteAccount(userId);
-    const { ids } = await db.getLocations(userId);
-    for (const loc of new Set([MAIN_LOCATION, ...ids])) await db.deleteLocation({ userId, loc });
-    for (const k of ["locations", "jobs", "ai_usage"]) await delKey(userId, k);
+    // Demo: everything the user has lives in one record; remove it whole, so nothing (not even an empty entry) is left.
+    await serial(async () => {
+      const all = await demoRead();
+      delete all[userId];
+      await writeAll(all);
+    });
   },
 
   /** Every user id with stored data (used by the background job runner to plan recurring work). */

@@ -1,4 +1,5 @@
 -- GMBmirror core schema (Supabase / PostgreSQL 15+).
+-- check: select count(*) = 8 from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r' and relname in ('accounts', 'locations', 'location_records', 'google_connections', 'user_records', 'jobs', 'rate_limits', 'migration_runs')
 -- Safe to run again: it creates what is missing and replaces functions and policies. It never drops data.
 --
 -- Access model

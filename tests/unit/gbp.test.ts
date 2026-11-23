@@ -288,3 +288,12 @@ test("automatic location choice: the only location, or the only one with the Set
   assert.equal(autoLocation([l("locations/1"), l("locations/2")]), undefined);
   assert.equal(autoLocation([]), undefined);
 });
+
+test("posts: a photo is sent as the post's media (Google downloads it); editing includes it in the update mask", async () => {
+  const body = postBody(draft({ imageUrl: "https://example.test/camp.jpg" }));
+  assert.deepEqual(body.media, [{ mediaFormat: "PHOTO", sourceUrl: "https://example.test/camp.jpg" }]);
+  assert.equal(postBody(draft({})).media, undefined);
+  answer({ name: "accounts/1/locations/1/localPosts/9", state: "LIVE" });
+  await updatePost("t", "accounts/1/locations/1/localPosts/9", draft({ imageUrl: "https://example.test/camp.jpg" }));
+  assert.equal(sent.at(-1)!.url.searchParams.get("updateMask"), "summary,media");
+});

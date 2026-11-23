@@ -73,6 +73,7 @@ Names are exactly as the code reads them. **Public** means compiled into browser
 | `DATABASE_URL` | no | yes | Supabase **Transaction pooler** string (port 6543). Locally, `npm run db:setup` enters it for you. |
 | `DATABASE_CA_CERT` | no | no | Not needed for Supabase: its certificate authority (Supabase Root 2021 CA) is built into `src/lib/db-ssl.ts`, and certificates and host names are always verified. Only for a non-Supabase database. |
 | `DATABASE_POOL_MAX` | no | no | Default 3 per instance. |
+| `DB_SLOW_MS` | no | no | Database queries slower than this are logged (default 250). |
 | `SESSION_SECRET` | no | yes | 32+ characters; signs the "recognised browser" cookie and the OAuth state cookie. |
 | `TOKEN_ENCRYPTION_KEY` | no | yes (with Google) | 64 hex characters. **Must be the same value as wherever the tokens were encrypted**, or migrated tokens cannot be read. |
 | `TRUSTED_PROXY_HOPS` | no | yes: `1` | Vercel is one trusted proxy. |
@@ -85,8 +86,12 @@ Names are exactly as the code reads them. **Public** means compiled into browser
 | `ANTHROPIC_API_KEY` | no | yes | `ANTHROPIC_MODEL` optional. |
 | `AI_MONTHLY_CALL_LIMIT`, `GRID_POINTS_PER_DAY`, `GBP_QPM_GUARD` | no | no | Defaults 600, 75, 250. |
 | `AI_EXTRA_PROVIDERS`, `OPENAI_*`, `GEMINI_*` | no | no | Leave `AI_EXTRA_PROVIDERS` unset (Claude only). |
+| `GOOGLE_SITE_VERIFICATION` | yes (in page HTML, by design) | for verification | Search Console HTML-tag code; proves domain ownership for Google OAuth. |
+| `RESEND_API_KEY` | no | for email | Resend API key (`re_…`, sending access). Without it and `EMAIL_FROM`, no email is sent and the app says so. |
+| `EMAIL_FROM` | no | for email | Sender on a domain verified in Resend, e.g. `GMBmirror <notifications@yourdomain.com>`. A free-mail domain (gmail.com…) is refused at startup. |
+| `EMAIL_REPLY_TO` | no | no | Default `gmbmirror@gmail.com`. |
 | `SUPABASE_SERVICE_ROLE_KEY` | no | **no** | Not used by the code. Do not add it to Vercel. |
-| `ALLOW_DEMO_IN_PRODUCTION`, `JOBS_TEST_CLOCK`, `GOOGLE_API_BASE_URL`, `GOOGLE_PLACES_BASE_URL`, `GBP_EDITS_PER_MIN`, `AI_RETRY_DELAY_MS`, `JOBS_INTERVAL_SECONDS` | no | never | Local testing only. |
+| `ALLOW_DEMO_IN_PRODUCTION`, `JOBS_TEST_CLOCK`, `GOOGLE_API_BASE_URL`, `GOOGLE_PLACES_BASE_URL`, `RESEND_API_BASE_URL`, `GBP_EDITS_PER_MIN`, `AI_RETRY_DELAY_MS`, `JOBS_INTERVAL_SECONDS` | no | never | Local testing only. |
 
 ## 5. Vercel compatibility
 
@@ -175,3 +180,42 @@ GMBmirror launches with **new accounts and new data only**. Nothing from the dem
 2. Restart the dev server.
 3. Sign up with a brand-new email, confirm, and run the fresh-account checks; then confirm the database holds only those new records.
 4. After the trial: the demo `.data` files can be removed (backed up first, only with the owner's approval).
+
+
+## 11. Email (Resend), added 21 November 2026
+
+**Code:** `src/lib/email.ts` (Resend REST API, server only), `src/lib/notify.ts` (messages and preferences).
+Outcomes are recorded honestly per account (Settings > Email notifications > Recent emails): *Accepted* (Resend
+took it for delivery; it cannot confirm the inbox), *Not sent* with the reason, or *email not set up*.
+
+| Email | Sent by | When | Can be turned off |
+|---|---|---|---|
+| Sign-up confirmation, password reset | **Supabase Auth** | Sign-up, "Forgot your password?" | no |
+| Welcome | app | Once, after the email address is confirmed | no (once only) |
+| Security notice | app | Password changed; Google connected or disconnected | no |
+| Monthly report (PDF attached) | job runner | 1st of the month, with the scheduled report | yes |
+| Failure alert | job runner | A scheduled post, review automation, refresh or report failed for good | yes |
+| Post published | job runner | Google accepted a scheduled post | yes (off by default) |
+| Report on request | app | "Email me this report" on Reports | — (owner's own action) |
+| Contact form | app | `/contact`, to gmbmirror@gmail.com, reply-to the visitor | — |
+
+Limits: 20 emails an hour per account, 3 contact messages an hour per address, 5 report emails an hour per account.
+Retried jobs never send twice (Resend idempotency keys: welcome, report, job failure, post published).
+
+**Setup**
+1. Resend: add and verify your sending domain (DNS records Resend shows: SPF, DKIM; DMARC recommended).
+2. Create an API key with sending access. Vercel (Production): `RESEND_API_KEY`, `EMAIL_FROM` (an address on that domain). Redeploy.
+3. Supabase > Authentication > Emails > SMTP Settings: enable custom SMTP with host `smtp.resend.com`, port `465`,
+   user `resend`, password = a Resend API key, sender = the same address as `EMAIL_FROM`. This sends sign-up and
+   reset emails through your verified domain and lifts Supabase's built-in sender limits. Keep the templates of section 10.
+4. Database: `npm run db:migrate` (applies `supabase/migrations/20261122000000_email_notifications.sql`, which widens
+   the per-user record kinds; no data is changed). Then `npm run db:setup -- --check`.
+5. Check: `/contact` shows the form; send yourself a report from Reports; Settings shows it as Accepted.
+
+
+## 12. Region and performance (23 November 2026)
+
+`vercel.json` sets `"regions": ["syd1"]`: functions and the Cron job run in Sydney, next to the Supabase database
+(`ap-southeast-2`). Measured effect on signed-in pages: 430–640 ms → 10–21 ms of server time (see
+`docs/PERFORMANCE_AUDIT.md`). After deploying, check Vercel > Settings > Functions shows Sydney, and that the build
+log lists `syd1`. Page-speed lines appear in the logs as `[vitals] …`, slow queries as `[db] slow …`.

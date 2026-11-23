@@ -26,7 +26,8 @@ test("a long email address does not make the page wider than the screen, on a ph
     }
     for (const path of ["/app/onboarding", "/app/settings"]) {
       await page.goto(path);
-      expect(await sideways(page), `${n} ${path}`).toBeLessThanOrEqual(0);
+      // Polled: the page may still be finishing a redirect or streaming when first measured.
+      await expect.poll(() => sideways(page).catch(() => 1), { message: `${n} ${path}` }).toBeLessThanOrEqual(0);
     }
     await expect(page.getByRole("button", { name: /Log out/ }).last()).toBeVisible();
     await ctx.close();

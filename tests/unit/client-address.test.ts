@@ -60,7 +60,7 @@ test("startup check: production must set TRUSTED_PROXY_HOPS; invalid values are 
 test("Supabase mode accepts the publishable key or the legacy anon key, and needs DATABASE_URL", () => {
   const base = { APP_MODE: "supabase", SESSION_SECRET: "s".repeat(40), NEXT_PUBLIC_SUPABASE_URL: "https://x.supabase.co" };
   const p = (e: Record<string, string>) => configProblems({ ...base, ...e } as unknown as NodeJS.ProcessEnv);
-  const db = { DATABASE_URL: "postgresql://u:p@h:6543/postgres" };
+  const db = { DATABASE_URL: "postgresql://u:p@db.example.com:6543/postgres" };
   assert.deepEqual(p({ ...db, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_x" }), []);
   assert.deepEqual(p({ ...db, NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJ" }), []);
   assert.ok(p(db).some((x) => x.includes("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY")));
@@ -73,4 +73,32 @@ test("demo mode can never run on Vercel, even with ALLOW_DEMO_IN_PRODUCTION", ()
   assert.deepEqual(e({}), [], "a production build on your own machine may still opt in");
   assert.ok(e({ VERCEL: "1" })[0].includes("cannot run on Vercel"));
   assert.ok(e({ VERCEL_ENV: "preview" })[0].includes("cannot run on Vercel"));
+});
+
+test("DATABASE_URL structure: a value cut short, unencoded special characters or another project are refused at startup, without repeating the value", async () => {
+  const { configProblems, databaseUrlProblem } = await import("@/lib/env");
+  const H = "aws-1-ap-southeast-2.pooler.supabase.com";
+  const SB = "https://abcdefghijklmnopqrst.supabase.co";
+  const ok = `postgresql://postgres.abcdefghijklmnopqrst:S3cret-pass@${H}:6543/postgres`;
+  assert.equal(databaseUrlProblem(ok, SB), undefined);
+  assert.equal(databaseUrlProblem(`postgresql://postgres.abcdefghijklmnopqrst:[S3cret-pass]@${H}:6543/postgres`, SB), undefined, "brackets in the password are read correctly");
+  assert.equal(databaseUrlProblem("postgresql://postgres@127.0.0.1:5432/gmb", SB), undefined, "local test databases have no password");
+  // The production failure of 21 November: "getaddrinfo ENOTFOUND postgres." from a value with no user:password@host.
+  assert.match(databaseUrlProblem("postgresql://postgres.", SB)!, /looks cut short/);
+  assert.match(databaseUrlProblem(`postgresql://postgres.abcdefghijklmnopqrst:ab/cd@${H}:6543/postgres`, SB)!, /must be URL-encoded/);
+  assert.match(databaseUrlProblem(`postgresql://postgres.abcdefghijklmnopqrst@${H}:6543/postgres`, SB)!, /no password/);
+  assert.match(databaseUrlProblem(`postgresql://postgres.otherprojectref00000:pw@${H}:6543/postgres`, SB)!, /different Supabase project/);
+  const all = configProblems({ APP_MODE: "supabase", SESSION_SECRET: "s".repeat(40), NEXT_PUBLIC_SUPABASE_URL: SB, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "k", DATABASE_URL: "postgresql://postgres.secretpart:hunter2-pass/x@h" } as unknown as NodeJS.ProcessEnv);
+  assert.ok(all.some((p) => p.startsWith("DATABASE_URL")));
+  assert.ok(!all.join(" ").includes("hunter2") && !all.join(" ").includes("secretpart"), "the value is never repeated");
+});
+
+test("startup warnings: a Google redirect URI for another address, and an unused Supabase admin key (values never repeated)", async () => {
+  const { configWarnings } = await import("@/lib/env");
+  const base = { NODE_ENV: "production", NEXT_PUBLIC_APP_URL: "https://gmbmirror.vercel.app" } as unknown as NodeJS.ProcessEnv;
+  assert.deepEqual(configWarnings({ ...base, GOOGLE_REDIRECT_URI: "https://gmbmirror.vercel.app/api/google/callback" }), []);
+  const w = configWarnings({ ...base, GOOGLE_REDIRECT_URI: "http://localhost:3000/api/google/callback", SUPABASE_SERVICE_ROLE_KEY: "eyJsecret" });
+  assert.equal(w.length, 2);
+  assert.ok(w[0].startsWith("GOOGLE_REDIRECT_URI") && w[1].startsWith("SUPABASE_SERVICE_ROLE_KEY"));
+  assert.ok(!w.join(" ").includes("localhost") && !w.join(" ").includes("eyJsecret"));
 });

@@ -19,7 +19,7 @@ const PRIORITY: Record<Priority, string> = { Critical: "badge-bad", High: "badge
 
 export default async function Dashboard({ searchParams }: { searchParams: Promise<{ password?: string }> }) {
   const { password } = await searchParams;
-  const { user, scope, business: b } = await requireBusiness();
+  const { user, scope, business: b } = await requireBusiness(["google", "places", "checks", "growth"]);
   const [{ view, growth, places, checks }, google] = await Promise.all([loadGrowth(scope, b), db.getGoogle(scope)]);
   const { recs, source, stale } = currentRecommendations(view, growth);
   const gStatus = ({

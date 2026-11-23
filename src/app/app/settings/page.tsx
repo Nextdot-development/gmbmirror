@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { requireBusiness } from "@/lib/ctx";
-import { AiPreferencesForm, AutomationForm, BusinessInfoForm, RefreshFromGoogle } from "@/components/forms";
+import { AiPreferencesForm, AutomationForm, BusinessInfoForm, DeleteAccountForm, NotificationPrefsForm, RefreshFromGoogle } from "@/components/forms";
+import { getPrefs } from "@/lib/notify";
+import { emailConfigured, type EmailLogEntry } from "@/lib/email";
 import { defaultAutomation } from "@/lib/review-safety";
 import { BusinessFinder } from "@/components/BusinessFinder";
 import { ConnectionNotices, GoogleConnectionPanel, type ConnectParams } from "@/components/GoogleConnection";
@@ -15,11 +17,13 @@ import type { GbpProfileSnapshot } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Settings" };
 
+const EMAIL_STATUS: Record<EmailLogEntry["status"], string> = { accepted: "Accepted", failed: "Not sent", not_configured: "Not sent (email not set up)", skipped: "Not sent" };
+
 const OPEN: Record<string, string> = { OPEN: "Open", CLOSED_TEMPORARILY: "Temporarily closed", CLOSED_PERMANENTLY: "Permanently closed" };
 
 export default async function Settings({ searchParams }: { searchParams: Promise<ConnectParams> }) {
   const sp = await searchParams;
-  const { user, scope, business: initial } = await requireBusiness();
+  const { user, scope, business: initial } = await requireBusiness(["google", "places"]);
   const before = gbpStatus(await db.getGoogle(scope));
   const changing = sp.change === "1";
   const wantLocations = before === "choose_location" || (before === "connected" && changing);
@@ -28,6 +32,8 @@ export default async function Settings({ searchParams }: { searchParams: Promise
   const { conn: google, error: syncError } = await currentProfile(scope);
   const status = gbpStatus(google);
   const b = (await db.getBusiness(scope)) ?? initial;
+  const [prefs, emailLog] = await Promise.all([getPrefs(user.id), db.getUserKey<EmailLogEntry[]>(user.id, "email_log", [])]);
+  const mailOn = emailConfigured();
   const snap: GbpProfileSnapshot | undefined = live(google) && google.profile?.location === google.locationName ? google.profile : undefined;
   const gaps = profileGaps(b, snap);
   const gapFor = (k: string) => gaps.find((g) => g.key === k)?.text;
@@ -131,19 +137,52 @@ export default async function Settings({ searchParams }: { searchParams: Promise
         <AutomationForm initial={b.automation ?? defaultAutomation()} canAuto={live(google)} />
       </section>
 
+      <section id="email" className="scroll-mt-8" aria-labelledby="email-h">
+        <h2 id="email-h" className="heading-6">Email notifications</h2>
+        <p className="body-6 mb-5 mt-1 text-muted" data-testid="email-status">
+          {mailOn
+            ? <>Sent to <span className="break-all">{user.email}</span>, for every location of this account.</>
+            : <>Email is not set up on this server yet, so nothing is sent. Your choices are kept for when it is.</>}
+        </p>
+        <NotificationPrefsForm initial={prefs} configured={mailOn} />
+        {emailLog.length ? (
+          <div className="mt-6" data-testid="email-log">
+            <h3 className="title-4">Recent emails</h3>
+            <ul className="mt-2 flex flex-col gap-1">
+              {emailLog.slice(0, 8).map((m, i) => (
+                <li key={i} className="caption-1 flex flex-wrap gap-x-2">
+                  <span className="text-muted">{fmtDateTime(m.at)}</span>
+                  <span>{m.subject}</span>
+                  <span className={m.status === "accepted" ? "text-ok" : "text-muted"}>{EMAIL_STATUS[m.status]}{m.detail ? `: ${m.detail}` : ""}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="caption-2 mt-2 text-muted">&ldquo;Accepted&rdquo; means Resend took the message for delivery; it cannot confirm it reached the inbox.</p>
+          </div>
+        ) : null}
+      </section>
+
       <section id="account" className="scroll-mt-8" aria-labelledby="del">
         <h2 id="del" className="heading-6">Account</h2>
         <p className="body-6 mt-1 text-muted">Signed in as <span className="break-all">{user.email}</span>.</p>
         <p className="body-6 mt-1 text-muted" data-testid="support-email">Need help? Email <a className="text-brand underline underline-offset-2" href={`mailto:${BRAND.email}`}>{BRAND.email}</a></p>
         <div className="mt-5">
-          <h3 className="title-4">Delete my data</h3>
-          <p className="body-6 mb-4 mt-1 text-muted">Removes your business details, checks, drafts, checklist progress and stored Google tokens. This cannot be undone.</p>
+          <h3 className="title-4">Delete my business data</h3>
+          <p className="body-6 mb-4 mt-1 text-muted">Cancels Google access and deletes the business data of every location: details, drafts, replies, posts, schedules, reports, logs, settings, email preferences and stored Google tokens. Your sign-in account stays, so you can start again. This cannot be undone.</p>
           <form action={deleteAllDataAction} className="flex flex-col items-start gap-3">
             <label className="flex items-center gap-2 body-5">
               <input type="checkbox" required className="accent-accent" /> I understand this cannot be undone
             </label>
             <button type="submit" className="btn btn-secondary">Delete all my data</button>
           </form>
+        </div>
+        <div className="mt-8 border-t border-line pt-6" id="delete-account">
+          <h3 className="title-4">Delete my account</h3>
+          <div className="body-6 mb-4 mt-1 flex flex-col gap-2 text-muted">
+            <p>Deletes everything above and also the sign-in account itself, then signs you out everywhere. Google is asked to cancel {BRAND.name}&apos;s access for every connected location.</p>
+            <p>Not deleted: replies and posts already published on Google (remove them there), and copies in our providers&apos; backups and logs until they expire. <a className="text-brand underline underline-offset-2" href="/data-deletion">Details</a>.</p>
+          </div>
+          <DeleteAccountForm email={user.email} />
         </div>
         {process.env.NODE_ENV === "development" ? (
           <ul className="caption-2 mt-6 flex flex-col gap-1 text-muted" aria-label="Setup status (development only)">

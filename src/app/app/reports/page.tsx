@@ -3,7 +3,9 @@ import Link from "next/link";
 import { requireBusiness } from "@/lib/ctx";
 import { db } from "@/lib/store";
 import { listJobs } from "@/lib/jobs";
-import { CreateReportForm } from "@/components/forms";
+import { CreateReportForm, EmailReportForm } from "@/components/forms";
+import { ShowMore, shownCount } from "@/components/ShowMore";
+import { emailConfigured } from "@/lib/email";
 import { fmtDateTime } from "@/components/bits";
 import type { MonthlyReport } from "@/lib/types";
 
@@ -11,9 +13,11 @@ export const metadata: Metadata = { title: "Reports" };
 
 const monthName = (m: string) => new Date(`${m}-01T00:00:00Z`).toLocaleDateString("en-IN", { month: "long", year: "numeric", timeZone: "UTC" });
 
-export default async function Reports({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
+const REPORTS_STEP = 6;
+
+export default async function Reports({ searchParams }: { searchParams: Promise<{ view?: string; show?: string }> }) {
   const sp = await searchParams;
-  const { user, scope, business: b } = await requireBusiness();
+  const { user, scope, business: b } = await requireBusiness(["reports", "google"]);
   const reports = await db.getLocal<MonthlyReport[]>(scope, "reports", []);
   const jobs = (await listJobs(user.id, scope.loc)).filter((j) => j.kind === "monthly_report");
   const nextJob = jobs.filter((j) => ["queued", "waiting", "running"].includes(j.status)).sort((x, y) => x.runAt.localeCompare(y.runAt))[0];
@@ -70,15 +74,18 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
           </section>
 
           {reports.length === 0 ? <p className="body-6 text-muted">No reports yet.</p> : null}
-          <ul className="flex flex-col gap-4" aria-label="Report history">
-            {reports.map((r) => (
+          <ul className="flex flex-col gap-4" aria-label="Report history" id="history">
+            {reports.slice(0, shownCount(sp.show, REPORTS_STEP, reports.length)).map((r) => (
               <li key={r.id} className="card" data-month={r.month}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h2 className="heading-6">{monthName(r.month)}{r.partial ? " (month to date)" : ""}</h2>
                     <p className="caption-2 text-muted">Made {fmtDateTime(r.generatedAt)} {r.trigger === "schedule" ? "automatically" : "on request"}</p>
                   </div>
-                  <a href={`/app/reports/${r.id}/pdf`} className="btn btn-secondary btn-sm" download>Download PDF</a>
+                  <div className="flex flex-wrap items-start gap-2">
+                    <a href={`/app/reports/${r.id}/pdf`} className="btn btn-secondary btn-sm" download>Download PDF</a>
+                    {emailConfigured() ? <EmailReportForm id={r.id} /> : null}
+                  </div>
                 </div>
                 {r.summary ? (
                   <div className="panel-soft mt-4 p-4">
@@ -98,6 +105,7 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
               </li>
             ))}
           </ul>
+          <ShowMore shown={shownCount(sp.show, REPORTS_STEP, reports.length)} total={reports.length} step={REPORTS_STEP} params={{ view: sp.view }} anchor="history" />
         </>
       )}
     </div>

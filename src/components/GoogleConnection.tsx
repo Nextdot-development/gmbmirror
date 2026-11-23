@@ -4,6 +4,8 @@ import { fmtDate, fmtDateTime, Source } from "@/components/bits";
 import type { GbpStatus } from "@/lib/gbp-state";
 import type { GbpLocation } from "@/lib/gbp-api";
 import type { Business, GoogleConnection } from "@/lib/types";
+import { GooglePermissions } from "./GooglePermissions";
+import { BRAND } from "@/lib/brand";
 
 /** Shared by the Google page and Settings: messages after sign-in or disconnect, and the connection panel. */
 
@@ -75,12 +77,12 @@ export function GoogleConnectionPanel({
           {devNote ? <p className="hint">Developer note (shown only in development): set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI. See docs/MASTER_PROJECT_STATUS.md.</p> : null}
         </div>
       ) : !google ? (
-        <div className="mt-4 flex flex-col items-start gap-3">
+        <div className="mt-4 flex flex-col gap-4">
           <p className="body-6 text-muted">
-            You will sign in with the Google account that manages your profile and approve one permission: manage your Business Profile.
-            We never see your password, and nothing is published without your approval.
+            Sign in with the Google account that manages your profile. Connecting lets {BRAND.name} show your real reviews, profile and performance,
+            and publish the replies and posts you approve. Nothing is published without your approval.
           </p>
-          <a href={startHref} className="btn btn-primary" aria-disabled="false">Connect Google Business Profile</a>
+          <GooglePermissions startHref={startHref} />
         </div>
       ) : (
         <div className="mt-4 flex flex-col gap-4">

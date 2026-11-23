@@ -29,6 +29,13 @@ export const LIMITS = {
   /** Password reset emails: per client address, and per email address. */
   resetPerIp: { limit: 5, windowMs: 60 * 60_000 },
   resetPerEmail: { limit: 3, windowMs: 60 * 60_000 },
+  /** Emails sent for one account (notifications, reports), and support messages from visitors in total. */
+  emailPerUser: { limit: 20, windowMs: 60 * 60_000 },
+  emailSupport: { limit: 40, windowMs: 60 * 60_000 },
+  /** The contact form, per client address. */
+  contactPerIp: { limit: 3, windowMs: 60 * 60_000 },
+  /** "Email me this report", per user. */
+  reportEmailPerUser: { limit: 5, windowMs: 60 * 60_000 },
   /** Each visibility check makes several paid model calls. */
   visibilityPerUser: { limit: 6, windowMs: 60 * 60_000 },
   /** Reply and post drafts, one model call each. */
@@ -185,4 +192,18 @@ export async function refundShared(key: string): Promise<void> {
 export async function clearShared(key: string): Promise<void> {
   if (!shared()) return clear(key);
   await (await pg()).query("delete from public.rate_limits where key = $1", [key]);
+}
+
+/**
+ * Removes limit records whose window ended more than a day ago. Some keys contain an email or client address, so
+ * they are not kept longer than needed. Run by the job runner on every pass.
+ */
+export async function pruneLimits(): Promise<number> {
+  if (!shared()) {
+    let n = 0;
+    for (const [k, b] of buckets) if (b.resetAt < Date.now() - 86_400_000) { buckets.delete(k); n++; }
+    return n;
+  }
+  const rows = await (await pg()).query<{ key: string }>("delete from public.rate_limits where reset_at < now() - interval '1 day' returning key");
+  return rows.length;
 }

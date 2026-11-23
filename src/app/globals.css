@@ -251,3 +251,13 @@ em, i, cite { font-style: normal; }
   .menu-link { transform: none; }
   .tag-word { opacity: 1; }
 }
+
+/* Loading placeholders (dashboard loading.tsx): soft blue-grey blocks with a slow shimmer. */
+.skeleton {
+  border-radius: 12px;
+  background: linear-gradient(90deg, var(--color-surface-2) 0%, var(--color-line) 50%, var(--color-surface-2) 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }

@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/ssr";
@@ -99,17 +100,53 @@ export async function supabaseServer() {
   });
 }
 
-export async function getUser(): Promise<User | null> {
+/**
+ * The signed-in user, at most once per request (the layout and the page share it).
+ * Supabase: the session's JWT is verified on this server with the project's public signing key (ES256, fetched once
+ * and kept for 10 minutes by supabase-js), so a page needs no call to the Auth server. Signature and expiry are
+ * checked; a session revoked elsewhere stops working when its access token expires (at most an hour). Actions that
+ * must know the account still exists right now use getVerifiedUser().
+ */
+export const getUser = cache(async (): Promise<User | null> => {
   if (env.mode() === "supabase") {
     const sb = await supabaseServer();
-    const { data } = await sb.auth.getUser();
-    return data.user ? { id: data.user.id, email: data.user.email ?? "" } : null;
+    const { data, error } = await sb.auth.getClaims();
+    const sub = data?.claims?.sub;
+    return !error && typeof sub === "string" && sub ? { id: sub, email: typeof data!.claims.email === "string" ? data!.claims.email : "" } : null;
   }
   const id = await demoSessionUserId();
   if (!id) return null;
   const users = await readJson<Record<string, { id: string; email: string; hash: string }>>(USERS_FILE, {});
   const u = Object.values(users).find((x) => x.id === id);
   return u ? { id: u.id, email: u.email } : null;
+});
+
+/** The signed-in user, confirmed by the Auth server itself (for account deletion and other sensitive changes). */
+export async function getVerifiedUser(): Promise<User | null> {
+  if (env.mode() !== "supabase") return getUser();
+  const sb = await supabaseServer();
+  const { data } = await sb.auth.getUser();
+  return data.user ? { id: data.user.id, email: data.user.email ?? "" } : null;
+}
+
+export async function requireVerifiedUser(): Promise<User> {
+  const user = await getVerifiedUser();
+  if (!user) redirect("/login");
+  return user;
+}
+
+/**
+ * The sign-in email of a user, for notifications sent without a request (background jobs). Supabase: read from
+ * Supabase Auth's own table over the server connection; demo: the local accounts file. Undefined when unknown.
+ */
+export async function emailOf(userId: string): Promise<string | undefined> {
+  if (env.mode() === "supabase") {
+    const { query } = await import("./db-pg");
+    const rows = await query<{ email: string | null }>("select email from auth.users where id = $1", [userId]);
+    return rows[0]?.email ?? undefined;
+  }
+  const users = await readJson<Record<string, { id: string; email: string; hash: string }>>(USERS_FILE, {});
+  return Object.values(users).find((x) => x.id === userId)?.email;
 }
 
 export async function requireUser(): Promise<User> {
@@ -185,6 +222,43 @@ export async function logOut() {
   }
 }
 
+/**
+ * Deletes the sign-in account itself and signs it out everywhere. Supabase: the Auth user row, which removes its
+ * sessions, refresh tokens and sign-in identities (Supabase's own foreign keys) and any GMBmirror account row
+ * still linked to it. Demo: the local account and every session of it. Call after the app data is deleted.
+ * Returns false when the login could not be deleted (nothing is claimed then).
+ */
+export async function deleteLogin(userId: string): Promise<boolean> {
+  if (env.mode() === "supabase") {
+    const { query } = await import("./db-pg");
+    try {
+      const gone = await query<{ id: string }>("delete from auth.users where id = $1 returning id", [userId]);
+      await forgetCookies((store) => { for (const c of store.getAll()) if (c.name.startsWith("sb-")) store.delete(c.name); });
+      return gone.length === 1;
+    } catch (e) {
+      console.error("[account] login not deleted:", e instanceof Error ? e.message : "error");
+      return false;
+    }
+  }
+  const users = await readJson<Record<string, { id: string; email: string; hash: string }>>(USERS_FILE, {});
+  for (const [k, u] of Object.entries(users)) if (u.id === userId) delete users[k];
+  await writeJson(USERS_FILE, users);
+  const sessions = await readJson<Record<string, DemoSession>>(SESSIONS_FILE, {});
+  for (const [k, s] of Object.entries(sessions)) if (s.userId === userId) delete sessions[k];
+  await writeJson(SESSIONS_FILE, sessions);
+  await forgetCookies((store) => store.delete(COOKIE));
+  return true;
+}
+
+/** Removes this browser's sign-in cookies, when there is a browser request (not in background jobs or scripts). */
+async function forgetCookies(fn: (store: Awaited<ReturnType<typeof cookies>>) => void) {
+  try {
+    fn(await cookies());
+  } catch {
+    /* no request in progress: nothing to clear */
+  }
+}
+
 /* ---------------- Email links and password reset (Supabase mode) ---------------- */
 
 /** Where a link from an email may send the person afterwards: only a path on this site. */
@@ -197,19 +271,21 @@ export function safeNext(next: string | null | undefined, fallback = "/app"): st
  * Two link forms are accepted: `token_hash` + `type` (the recommended email template, works in any browser), and
  * `code` (Supabase's default PKCE link, which works only in the browser that asked for it).
  */
-export async function completeEmailLink(p: { tokenHash?: string | null; type?: string | null; code?: string | null }): Promise<boolean> {
-  if (env.mode() !== "supabase") return false;
+/** Verifies a link from a Supabase email and starts the session. Returns the signed-in user, or null. */
+export async function completeEmailLink(p: { tokenHash?: string | null; type?: string | null; code?: string | null }): Promise<User | null> {
+  if (env.mode() !== "supabase") return null;
   const sb = await supabaseServer();
   const types = ["signup", "email", "recovery", "invite", "magiclink", "email_change"] as const;
+  const asUser = (u: { id: string; email?: string } | null | undefined) => (u ? { id: u.id, email: u.email ?? "" } : null);
   if (p.tokenHash && p.type && (types as readonly string[]).includes(p.type)) {
-    const { error } = await sb.auth.verifyOtp({ token_hash: p.tokenHash, type: p.type as (typeof types)[number] });
-    return !error;
+    const { data, error } = await sb.auth.verifyOtp({ token_hash: p.tokenHash, type: p.type as (typeof types)[number] });
+    return error ? null : asUser(data.user);
   }
   if (p.code) {
-    const { error } = await sb.auth.exchangeCodeForSession(p.code);
-    return !error;
+    const { data, error } = await sb.auth.exchangeCodeForSession(p.code);
+    return error ? null : asUser(data.user);
   }
-  return false;
+  return null;
 }
 
 /**

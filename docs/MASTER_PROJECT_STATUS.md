@@ -26,6 +26,35 @@ This file replaces the two working notes "Current Features" and "Pending Feature
 Rows marked "Playwright" or "Tested, browser (Phase 1)" are protected by those tests. Other "Tested, browser" rows were clicked through on the date shown.
 ---
 
+## 0P. Legal, privacy, trust and Google OAuth verification readiness (21 November 2026, night)
+
+Audit and findings: `docs/COMPLIANCE_AUDIT.md`. Verification package: `docs/GOOGLE_OAUTH_VERIFICATION.md`,
+`docs/GOOGLE_SCOPE_JUSTIFICATION.md`. **Not submitted to Google; nothing is verified.**
+
+- **Public pages** (shared layout `src/components/PublicPage.tsx`, footer "Trust" column, sitemap, robots): `/about`, `/privacy` (rewritten from the code: every Google data category, purpose, storage, Limited Use, Anthropic payloads, subprocessors, regions, retention, rights), `/terms` (rewritten), `/cookies`, `/data-deletion`, `/security`, `/contact`. Owner facts not yet confirmed live in `src/lib/legal.ts`; unset facts are omitted, never invented.
+- **Delete my account** (Settings): typed email + tick; revokes every Google grant, deletes all data and the Supabase Auth user (`deleteLogin`), signs out, `/account-deleted` reports what Google confirmed, confirmation email when email is set up.
+- **Rate-limit records** older than a day past their window are pruned on every job run (`pruneLimits`).
+- **Google connect explainer** (`GooglePermissions`): data read, actions possible, exact scopes, AI use, disconnect, policy links, no Google logo on the button, independence statement.
+- **Startup warnings** (`configWarnings`): wrong `GOOGLE_REDIRECT_URI`, unused `SUPABASE_SERVICE_ROLE_KEY`.
+- **`GOOGLE_SITE_VERIFICATION`**: Search Console meta tag.
+- Site description no longer says the app checks ChatGPT and Gemini (the checks are Claude estimates).
+- `npm audit --omit=dev`: 0 vulnerabilities.
+
+---
+
+## 0O. Product audit, email, photo posts, PDF symbols (21 November 2026, evening)
+
+Full audit: `docs/PRODUCT_AUDIT_2026-11-21.md`. Email setup: `docs/DEPLOYMENT.md` section 11.
+
+- **Email (Resend):** `src/lib/email.ts`, `src/lib/notify.ts`. Welcome, security notices, monthly report with PDF, failure alerts, post published, "Email me this report", `/contact` form to gmbmirror@gmail.com. Preferences and an honest per-account log in Settings. Nothing claims delivery; without `RESEND_API_KEY` + `EMAIL_FROM` nothing is sent and the app says so.
+- **Migration:** `supabase/migrations/20261122000000_email_notifications.sql` (per-user record kinds `notifications`, `email_log`). `npm run db:migrate` applies pending migrations; each migration declares a `-- check:` query.
+- **Posts:** optional photo by public https link, sent to Google as the post's media.
+- **PDF:** characters neither font has are printed as plain stand-ins instead of disappearing.
+- **Vercel:** report PDF files are traced into `/api/jobs/run` and `/app/reports` too (emailed PDFs).
+- **Production:** dynamic routes return 500 (startup configuration check); see the audit.
+
+---
+
 ## 0N. Supabase storage and Vercel preparation (21 November 2026)
 
 Full details: `docs/DEPLOYMENT.md`. **Not deployed; not production ready** until it runs on a real Supabase project and Vercel.

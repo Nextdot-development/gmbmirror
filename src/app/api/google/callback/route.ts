@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
+import { notifySecurity } from "@/lib/notify";
 import { getUser } from "@/lib/session";
 import { env } from "@/lib/env";
 import { unsign } from "@/lib/crypto";
@@ -46,6 +47,8 @@ export async function GET(req: NextRequest) {
       : {};
     conn = { ...keep, ...fresh, connectedAt: new Date().toISOString() };
     await db.saveGoogle(scope, conn);
+    const signedIn = conn.email;
+    after(() => notifySecurity(user, "google_connected", `Google account: ${signedIn ?? "unknown"}.`).then(() => undefined, () => undefined));
   } catch (e) {
     return back(e instanceof GbpError && e.kind === "scope" ? "error=scope" : "error=exchange");
   }

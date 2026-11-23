@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { DM_Sans, Outfit } from "next/font/google";
 import { GeistMono } from "geist/font/mono";
 import "./globals.css";
+import { WebVitals } from "@/components/WebVitals";
 import { BRAND, BRAND_TITLE } from "@/lib/brand";
 
 const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-dm-sans", display: "swap" });
@@ -15,7 +16,7 @@ export const metadata: Metadata = {
   applicationName: BRAND.name,
   title: { default: BRAND_TITLE, template: `%s | ${BRAND.name}` },
   description:
-    "Connect your Google Business Profile, reply to reviews faster, and check whether ChatGPT and Gemini name your clinic or business. Built for doctors and local businesses.",
+    "Connect your Google Business Profile, reply to reviews with AI drafts you approve, publish posts, and track your local visibility. Built for doctors and local businesses.",
   openGraph: {
     title: BRAND_TITLE,
     description: "See how your business looks on Google and in AI answers, then fix what matters first.",
@@ -23,6 +24,8 @@ export const metadata: Metadata = {
     siteName: BRAND.name,
   },
   twitter: { card: "summary_large_image", title: BRAND_TITLE, description: "See how your business looks on Google and in AI answers." },
+  // Google Search Console ownership tag (needed to verify the domain for Google OAuth). Set GOOGLE_SITE_VERIFICATION.
+  ...(process.env.GOOGLE_SITE_VERIFICATION?.trim() ? { verification: { google: process.env.GOOGLE_SITE_VERIFICATION.trim() } } : {}),
 };
 
 export const viewport: Viewport = { themeColor: "#ffffff", width: "device-width", initialScale: 1 };

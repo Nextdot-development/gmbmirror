@@ -109,3 +109,11 @@ test("report PDF: long Hindi text wraps onto several pages", async () => {
   assert.match(pdf, /\/Count [2-9]/);
   assert.ok(xrefOk(pdf));
 });
+
+test("report PDF: symbols the fonts lack are shown as plain stand-ins, never silently dropped (Hindi unchanged)", async () => {
+  const withSymbols = Buffer.from(await reportPdf([{ text: "समीक्षाएँ: औसत रेटिंग 4.6 ★ ✓ 🙂" }]));
+  const plain = Buffer.from(await reportPdf([{ text: "समीक्षाएँ: औसत रेटिंग 4.6 * OK ?" }]));
+  // Same glyphs drawn: ★ became "*", ✓ became "OK", the emoji "?" (no glyph 0 anywhere).
+  assert.deepEqual(drawnGlyphs(withSymbols), drawnGlyphs(plain));
+  assert.ok(!drawnGlyphs(withSymbols).includes("0000"));
+});

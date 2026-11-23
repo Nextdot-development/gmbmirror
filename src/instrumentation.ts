@@ -1,7 +1,8 @@
 /** Runs once when the server starts. A misconfigured server stops here instead of serving requests. */
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
-  const { configProblems } = await import("./lib/env");
+  const { configProblems, configWarnings } = await import("./lib/env");
+  for (const w of configWarnings()) console.warn(`[config] ${w}`);
   const problems = configProblems();
   if (problems.length) {
     console.error(`\nGMBmirror cannot start:\n${problems.map((p) => `  - ${p}`).join("\n")}\n`);

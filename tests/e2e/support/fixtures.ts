@@ -73,8 +73,14 @@ export async function setGoogleListing(page: Page, placeId: string) {
   await page.goto("/app/settings");
   const finder = page.locator("section", { has: page.locator("#listing-h") });
   const manualLink = finder.getByRole("button", { name: "Enter Place ID manually" });
-  if (await manualLink.isVisible()) await manualLink.click();
-  await finder.locator("#f-placeId").fill(placeId);
+  const input = finder.locator("#f-placeId");
+  await expect(manualLink.or(input)).toBeVisible();
+  // A click that lands before the page has hydrated does nothing, so retry until the input opens.
+  await expect(async () => {
+    if (await manualLink.isVisible()) await manualLink.click();
+    await expect(input).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 15_000 });
+  await input.fill(placeId);
   await finder.getByRole("button", { name: "Use this ID" }).click();
   const done = finder.getByRole("status").filter({ hasText: /saved/i });
   const force = finder.getByRole("button", { name: "Save without checking" });
@@ -101,6 +107,11 @@ export async function placesMode(opts: { improved?: boolean; grid?: (number | nu
 }
 
 /** Set what the mock Claude answers to visibility questions. Also clears its call log. */
+/** Emails sent to the Resend stand-in (Business Profile test server only), newest last. */
+export async function sentEmails(): Promise<{ to: string[]; from: string; subject: string; text: string; reply_to: string; attachments: { filename: string; head: string }[]; auth?: string; key?: string }[]> {
+  return (await fetch(`http://127.0.0.1:${process.env.E2E_MOCK_PORT}/emails`)).json();
+}
+
 export async function mockAI(mode: string, answer = "") {
   const r = await fetch(`${MOCK}/mode?m=${encodeURIComponent(mode)}&a=${encodeURIComponent(answer)}`);
   expect(r.ok).toBe(true);
@@ -164,6 +175,21 @@ export const test = base.extend<{ businessName: string; onboard: boolean; accoun
   // login limits from blocking the suite.
   extraHTTPHeaders: async ({}, use) => {
     await use({ "x-forwarded-for": fakeAddress() });
+  },
+
+  // After a full page load, waits until React has hydrated every form control. Dashboard pages stream behind a loading
+  // boundary (src/app/app/loading.tsx) and React hydrates that content in a later pass; a value typed or chosen before
+  // then is replaced by the component's own state. People are far slower than that gap; tests are not.
+  page: async ({ page }, use) => {
+    const goto = page.goto.bind(page);
+    const reload = page.reload.bind(page);
+    const settle = async () => {
+      await page.waitForFunction(() => [...document.querySelectorAll("button, input:not([type=hidden]), select, textarea")]
+        .every((el) => Object.keys(el).some((k) => k.startsWith("__reactFiber"))), undefined, { timeout: 15_000 }).catch(() => {});
+    };
+    page.goto = async (...args: Parameters<typeof goto>) => { const r = await goto(...args); await settle(); return r; };
+    page.reload = async (...args: Parameters<typeof reload>) => { const r = await reload(...args); await settle(); return r; };
+    await use(page);
   },
 
   // Fails a test that logs a browser console error or an uncaught page error.

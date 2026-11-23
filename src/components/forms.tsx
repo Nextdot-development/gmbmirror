@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useActionState, useEffect, useRef, useState } from "react";
 import {
-  addGoogleLocationAction, removeLocationAction, requestPasswordResetAction, setNewPasswordAction, addInsightAction, chooseLocationAction, createReportAction, explainCompetitorsAction, explainInsightsAction, deleteInsightAction, editInsightAction, editPostAction, logInAction, postComposerAction, refreshFromGoogleAction, refreshInsightsAction,
+  addGoogleLocationAction, contactAction, deleteAccountAction, emailReportAction, removeLocationAction, saveNotificationPrefsAction, requestPasswordResetAction, setNewPasswordAction, addInsightAction, chooseLocationAction, createReportAction, explainCompetitorsAction, explainInsightsAction, deleteInsightAction, editInsightAction, editPostAction, logInAction, postComposerAction, refreshFromGoogleAction, refreshInsightsAction,
   replyAction, runVisibilityAction, saveAiPreferencesAction, saveAutomationAction, saveBusinessAction, saveGuideNotesAction, signUpAction, type FormState,
 } from "@/app/actions";
 import { Field, Msg, SubmitButton } from "./ui";
@@ -317,6 +317,8 @@ export function PostComposer({ healthcare }: { healthcare: boolean }) {
         </div>
         {cta && cta !== "CALL" ? <Field label="Button link" name="ctaUrl" type="url" placeholder="https://" defaultValue={v.ctaUrl} /> : null}
       </div>
+      <Field label="Photo link (optional)" name="imageUrl" type="url" placeholder="https://" defaultValue={v.imageUrl}
+        hint="A public https link to a JPG or PNG photo (at least 250 × 250 pixels, under 5 MB), for example from your website. Google downloads it when the post is published; if Google cannot use it, the post is not published and the reason is shown." />
       {kind !== "STANDARD" ? (
         <fieldset className="grid gap-4 sm:grid-cols-2" key={JSON.stringify(v)}>
           <legend className="label">{kind === "EVENT" ? "Event details" : "Offer details"} (Google requires a title and dates)</legend>
@@ -595,6 +597,82 @@ export function ExplainCompetitors() {
     <form action={action} className="flex flex-col items-start gap-2">
       <SubmitButton variant="secondary" small pending="Asking Claude">Explain why they may be more visible</SubmitButton>
       {s.error ? <Msg state={s} /> : null}
+    </form>
+  );
+}
+
+/** Settings > Email notifications. Security notices are always sent, so they have no switch. */
+export function NotificationPrefsForm({ initial, configured }: { initial: { reportEmails: boolean; jobAlerts: boolean; postPublished: boolean }; configured: boolean }) {
+  const [s, action] = useActionState(saveNotificationPrefsAction, init);
+  const OPTIONS = [
+    { name: "reportEmails", t: "Monthly report", d: "The report PDF for each location on the 1st of every month.", on: initial.reportEmails },
+    { name: "jobAlerts", t: "Failure alerts", d: "When a scheduled post, review automation or a report fails after every retry.", on: initial.jobAlerts },
+    { name: "postPublished", t: "Published posts", d: "Each time Google accepts one of your scheduled posts.", on: initial.postPublished },
+  ];
+  return (
+    <form action={action} className="flex flex-col gap-3" data-testid="notification-prefs">
+      {OPTIONS.map((o) => (
+        <label key={o.name} className="inset flex cursor-pointer items-start gap-3">
+          <input type="checkbox" name={o.name} defaultChecked={o.on} className="mt-1 shrink-0" />
+          <span><span className="body-5 block">{o.t}</span><span className="caption-2 block text-muted">{o.d}</span></span>
+        </label>
+      ))}
+      <p className="caption-2 text-muted">Security notices (password changed, Google connected or disconnected) are always sent.{configured ? "" : " Nothing is sent until email is set up on the server."}</p>
+      <Msg state={s} />
+      <div><SubmitButton pending="Saving">Save email choices</SubmitButton></div>
+    </form>
+  );
+}
+
+/** "Email me this report": the PDF to the account's own address. */
+export function EmailReportForm({ id }: { id: string }) {
+  const [s, action] = useActionState(emailReportAction, init);
+  return (
+    <form action={action} className="flex flex-col items-start gap-2" data-testid="email-report">
+      <input type="hidden" name="id" value={id} />
+      <SubmitButton pending="Sending" variant="secondary" small>Email me this report</SubmitButton>
+      <Msg state={s} />
+    </form>
+  );
+}
+
+const TOPICS = ["Question", "Problem or bug", "Billing", "Privacy or data", "Other"];
+
+/** The public contact form. */
+export function ContactForm({ email }: { email?: string }) {
+  const [s, action] = useActionState(contactAction, init);
+  const e = s.fieldErrors ?? {};
+  if (s.ok) return <p className="inset body-5" role="status" data-testid="contact-sent">{s.ok}</p>;
+  return (
+    <form action={action} className="flex flex-col gap-4" key={JSON.stringify(s.values ?? {})} data-testid="contact-form">
+      <Field label="Your name" name="name" autoComplete="name" required defaultValue={s.values?.name} error={e.name} />
+      <Field label="Your email" name="email" type="email" autoComplete="email" required defaultValue={s.values?.email ?? email} error={e.email} hint="We answer to this address." />
+      <Field label="Topic" name="topic" as="select" defaultValue={s.values?.topic ?? "Question"} error={e.topic}>
+        {TOPICS.map((t) => <option key={t} value={t}>{t}</option>)}
+      </Field>
+      <Field label="Message" name="message" as="textarea" rows={6} required defaultValue={s.values?.message} error={e.message} />
+      {/* Hidden from people; automated form fillers complete it. */}
+      <div aria-hidden="true" className="hidden"><label>Website <input name="website" tabIndex={-1} autoComplete="off" /></label></div>
+      <Msg state={s} />
+      <div><SubmitButton pending="Sending">Send message</SubmitButton></div>
+    </form>
+  );
+}
+
+/** Settings > Account > Delete my account. The owner types their email address and ticks the box. */
+export function DeleteAccountForm({ email }: { email: string }) {
+  const [s, action] = useActionState(deleteAccountAction, init);
+  const e = s.fieldErrors ?? {};
+  return (
+    <form action={action} className="flex flex-col gap-4" data-testid="delete-account" key={JSON.stringify(s.values ?? {})}>
+      <Field label={`Type your account email (${email}) to confirm`} name="confirmEmail" type="email" autoComplete="off" required error={e.confirmEmail} defaultValue={s.values?.confirmEmail} />
+      <label className="caption-1 flex items-start gap-2">
+        <input type="checkbox" name="understand" className="mt-0.5 accent-accent" />
+        <span>I understand my account and all its data will be deleted permanently</span>
+      </label>
+      {e.understand ? <p className="field-error" role="alert">{e.understand}</p> : null}
+      <Msg state={s} />
+      <div><SubmitButton pending="Deleting your account" variant="secondary">Delete my account permanently</SubmitButton></div>
     </form>
   );
 }

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { requireBusiness } from "@/lib/ctx";
+import { ShowMore, shownCount } from "@/components/ShowMore";
 import { db } from "@/lib/store";
 import { live, loadGooglePosts } from "@/lib/gbp";
 import { PostComposer, PostEditor } from "@/components/forms";
@@ -29,9 +30,11 @@ const JOB_TEXT: Record<string, (j: Job) => string> = {
   cancelled: (j) => `Schedule cancelled: ${j.log[0]?.message ?? ""}`,
 };
 
-export default async function Posts({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
+const POSTS_STEP = 15;
+
+export default async function Posts({ searchParams }: { searchParams: Promise<{ month?: string; show?: string }> }) {
   const sp = await searchParams;
-  const { user, scope, business: b } = await requireBusiness();
+  const { user, scope, business: b } = await requireBusiness(["google", "posts"]);
   // The latest publishing job of each post, for its schedule status and log.
   const jobs = (await listJobs(user.id, scope.loc)).filter((j) => j.kind === "publish_post");
   const jobFor = (id: string) => jobs.filter((j) => j.payload.postId === id).sort((x, y) => y.createdAt.localeCompare(x.createdAt))[0];
@@ -42,6 +45,9 @@ export default async function Posts({ searchParams }: { searchParams: Promise<{ 
   const { posts: onGoogle, error: syncError } = canPost && published ? await loadGooglePosts(scope) : {};
   const googleState = new Map((onGoogle ?? []).map((g) => [g.name, g]));
   const healthcare = b.type === "healthcare";
+  // The editors are the heavy part of the page: show the newest POSTS_STEP and more on request. The calendar above
+  // still uses every post.
+  const shown = shownCount(sp.show, POSTS_STEP, posts.length);
 
   return (
     <div className="flex flex-col gap-8">
@@ -65,7 +71,7 @@ export default async function Posts({ searchParams }: { searchParams: Promise<{ 
           <div className="card"><p className="title-3">No posts yet</p><p className="body-6 mt-1 text-muted">Draft your first post above. A short, useful update works better than a long one.</p></div>
         ) : (
           <ul className="flex flex-col gap-4">
-            {posts.map((p) => {
+            {posts.slice(0, shown).map((p) => {
               // Same text as when the post is saved or edited: the post plus the event title.
               const warnings = healthcare ? medicalWarnings([p.text, p.event?.title ?? ""].join(" ")) : [];
               const g = p.googleName ? googleState.get(p.googleName) : undefined;
@@ -104,6 +110,7 @@ export default async function Posts({ searchParams }: { searchParams: Promise<{ 
                       </details>
                     </div>
                   ) : null}
+                  {p.imageUrl ? <p className="caption-2 mt-1 break-all text-muted" data-testid="post-photo">Photo: <a className="underline underline-offset-2" href={p.imageUrl} target="_blank" rel="noopener noreferrer">{p.imageUrl}</a></p> : null}
                   {p.callToAction ? <p className="caption-2 mt-1 text-muted">Button: {CTA_LABEL[p.callToAction.actionType]}{p.callToAction.url ? ` → ${p.callToAction.url}` : " (your Google phone number)"}</p> : null}
                   {p.publishedAt ? (
                     <p className="caption-2 mt-2 text-muted">
@@ -133,6 +140,7 @@ export default async function Posts({ searchParams }: { searchParams: Promise<{ 
             })}
           </ul>
         )}
+        <ShowMore shown={shown} total={posts.length} step={POSTS_STEP} params={{ month: sp.month }} anchor="drafts" />
       </section>
     </div>
   );

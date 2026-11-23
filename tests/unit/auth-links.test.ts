@@ -16,6 +16,6 @@ test("email links may only send people to a path on this site", async () => {
 
 test("demo mode: email links do nothing and password reset says it is unavailable", async () => {
   const { completeEmailLink, requestPasswordReset } = await import("@/lib/session");
-  assert.equal(await completeEmailLink({ tokenHash: "x", type: "recovery" }), false);
+  assert.equal(await completeEmailLink({ tokenHash: "x", type: "recovery" }), null);
   assert.match((await requestPasswordReset("a@example.test")).error!, /not available/);
 });

@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Gauge, MapPinArea, ChatCircleText, Megaphone, MagnifyingGlass, ListChecks, GearSix, CaretRight, Storefront, FileText } from "@phosphor-icons/react";
@@ -15,6 +15,12 @@ const ITEMS = [
   { href: "/app/locations", label: "Locations", icon: Storefront },
   { href: "/app/settings", label: "Settings", icon: GearSix },
 ];
+
+/** A small pulsing dot on the link just clicked, until its page is on screen (feedback within a frame). */
+function Pending() {
+  const { pending } = useLinkStatus();
+  return <span aria-hidden className={`ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-brand transition-opacity duration-150 ${pending ? "animate-pulse opacity-100" : "opacity-0"}`} />;
+}
 
 export function AppNav() {
   const path = usePathname();
@@ -42,6 +48,7 @@ export function AppNav() {
           <Link key={i.href} href={i.href} aria-current={active ? "page" : undefined}
             className="side-link">
             <i.icon size={18} weight={active ? "fill" : "regular"} className="shrink-0" aria-hidden /> {i.label}
+            <Pending />
           </Link>
         );
       })}

@@ -18,6 +18,8 @@ type Row = {
 
 /** One location's summary, from its own stored data only (no Google calls, nothing shared between locations). */
 async function summary(scope: Scope, active: boolean, i: number): Promise<Row> {
+  // Everything this summary reads, in one round trip per location.
+  await db.preload(scope, ["business", "google", "posts", "replies", "places", "checks", "growth"]);
   const b = await db.getBusiness(scope);
   if (!b) return { id: scope.loc, active, name: `New location ${i + 1}`, place: "Setup not finished", status: "setup", scheduled: 0, drafts: 0, waiting: 0 };
   const [google, posts, replies, { view, places, checks }] = await Promise.all([db.getGoogle(scope), db.getPosts(scope), db.getReplies(scope), loadGrowth(scope, b)]);

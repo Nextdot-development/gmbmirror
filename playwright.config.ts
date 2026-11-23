@@ -37,7 +37,7 @@ export default defineConfig({
   projects: [
     { name: "desktop", use: { viewport: desktop } },
     { name: "tablet", use: { viewport: tablet }, testMatch: ["layout.spec.ts", "review-share.spec.ts"] },
-    { name: "mobile", use: { viewport: mobile, isMobile: true, hasTouch: true }, testMatch: ["layout.spec.ts", "review-share.spec.ts", "posts.spec.ts", "onboarding.spec.ts", "auth.spec.ts", "discovery.spec.ts", "gbp.spec.ts", "gbp-onboarding.spec.ts", "settings.spec.ts", "locations.spec.ts", "automation.spec.ts", "completion.spec.ts", "branding.spec.ts", "password-reset.spec.ts"] },
+    { name: "mobile", use: { viewport: mobile, isMobile: true, hasTouch: true }, testMatch: ["layout.spec.ts", "review-share.spec.ts", "posts.spec.ts", "onboarding.spec.ts", "auth.spec.ts", "discovery.spec.ts", "gbp.spec.ts", "gbp-onboarding.spec.ts", "settings.spec.ts", "locations.spec.ts", "automation.spec.ts", "completion.spec.ts", "branding.spec.ts", "password-reset.spec.ts", "email.spec.ts", "trust.spec.ts", "performance.spec.ts"] },
   ],
   webServer: {
     command: "node tests/e2e/support/server.mjs",

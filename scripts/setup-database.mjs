@@ -4,11 +4,12 @@
 //   npm run db:setup            asks once for the connection string (hidden), tests it, creates the tables if they
 //                               are missing (after asking), checks security, and saves it to .env.local.
 //   npm run db:setup -- --check only tests and checks; writes nothing.
+//   npm run db:migrate          uses the saved connection and applies new migrations (after asking).
 //
 // It never drops anything, never imports old data, never touches .env or .data, and never prints the password.
 // TLS: Supabase's certificate authority is built in (src/lib/db-ssl.ts) and certificates are always verified.
 
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import nextEnv from "@next/env";
@@ -17,12 +18,13 @@ import { connectionString, customCa, sslFor } from "../src/lib/db-ssl.ts";
 import { configProblems } from "../src/lib/env.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
-const MIGRATION = path.join(root, "supabase/migrations/20261121000000_gmbmirror_core.sql");
+const MIGRATIONS = path.join(root, "supabase/migrations");
 const VERIFY = path.join(root, "supabase/verify/verify_schema.sql");
 const ENV_LOCAL = path.join(root, ".env.local");
 const TABLES = ["accounts", "locations", "location_records", "google_connections", "user_records", "jobs", "rate_limits", "migration_runs"];
 const args = new Set(process.argv.slice(2));
 const checkOnly = args.has("--check");
+const migrateOnly = args.has("--migrate");
 const yes = args.has("--yes");
 
 const ok = (m) => console.log(`  \u2713 ${m}`);
@@ -118,7 +120,7 @@ async function main() {
   let url;
   let entered = false;
   const existing = savedIn();
-  if (checkOnly) {
+  if (checkOnly || migrateOnly) {
     url = process.env.DATABASE_URL;
     if (!url) fail("DATABASE_URL is not set. Run npm run db:setup (without --check) to enter it.");
     ok(`Using the saved DATABASE_URL (from ${existing[0] ?? "the environment"})`);
@@ -165,23 +167,30 @@ async function main() {
     else info(`Tables present: ${have.length}/8${have.length ? ` (${have.join(", ")})` : ""}. Missing: ${missing.join(", ")}`);
     if (legacy) info("An old table public.user_data exists. It is not used and is left untouched.");
 
-    // 4. Create what is missing (the migration only adds; it never drops).
-    if (missing.length) {
-      if (checkOnly) {
-        bad("Schema not applied yet (run npm run db:setup without --check)");
-      } else {
-        const go = yes || /^y(es)?$/i.test(await ask(`\n  Create the missing tables, functions and security policies now? It never drops anything. [y/N] `));
-        if (!go) fail("Stopped. Nothing was changed.");
-        await db.query("begin");
-        try {
-          await db.query(readFileSync(MIGRATION, "utf8"));
-          await db.query("commit");
-        } catch (e) {
-          await db.query("rollback").catch(() => {});
-          fail(`The schema could not be applied, and nothing was changed: ${e.message}`);
-        }
-        ok("Schema applied (supabase/migrations/20261121000000_gmbmirror_core.sql)");
+    // 4. Apply pending migrations (each only adds; each declares how to tell it is applied, in a "-- check:" line).
+    const pending = [];
+    for (const f of readdirSync(MIGRATIONS).filter((x) => x.endsWith(".sql")).sort()) {
+      const sql = readFileSync(path.join(MIGRATIONS, f), "utf8");
+      const check = sql.match(/^-- check: (.+)$/m)?.[1];
+      const applied = check ? Boolean(Object.values((await db.query(check)).rows[0] ?? {})[0]) : !missing.length;
+      if (!applied) pending.push({ f, sql });
+    }
+    if (!pending.length) ok("All migrations applied");
+    else if (checkOnly) bad(`Not applied yet: ${pending.map((m) => m.f).join(", ")} (run npm run db:migrate)`);
+    else {
+      info(`To apply: ${pending.map((m) => m.f).join(", ")}`);
+      const go = yes || /^y(es)?$/i.test(await ask(`\n  Apply ${pending.length === 1 ? "this migration" : `these ${pending.length} migrations`} now? They only add; they never drop tables or data. [y/N] `));
+      if (!go) fail("Stopped. Nothing was changed.");
+      await db.query("begin");
+      try {
+        for (const m of pending) await db.query(m.sql);
+        await db.query("commit");
+      } catch (e) {
+        await db.query("rollback").catch(() => {});
+        fail(`The migrations could not be applied, and nothing was changed: ${e.message}`);
       }
+      pending.forEach((m) => ok(`Applied ${m.f}`));
+      missing.length = 0;
     }
 
     // 5. Security and structure checks (supabase/verify/verify_schema.sql, all inside a rolled-back transaction).

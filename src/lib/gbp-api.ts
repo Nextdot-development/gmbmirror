@@ -353,6 +353,8 @@ export function postBody(post: PostDraft, languageCode = "en"): Record<string, u
     const o = Object.fromEntries(Object.entries(post.offer).filter(([, v]) => v));
     if (Object.keys(o).length) body.offer = o;
   }
+  // Google fetches the photo from this public link when it creates the post (LocalPost.media, MediaItem sourceUrl).
+  if (post.imageUrl) body.media = [{ mediaFormat: "PHOTO", sourceUrl: post.imageUrl }];
   return body;
 }
 
@@ -365,7 +367,7 @@ export async function createPost(token: string, account: string, location: strin
 /** Updates a published post. Only the fields named in the update mask change (Google requires the mask). */
 export async function updatePost(token: string, name: string, post: PostDraft, languageCode?: string): Promise<GbpPost> {
   const body = postBody(post, languageCode);
-  const mask = ["summary", ...(body.event ? ["event"] : []), ...(body.offer ? ["offer"] : []), ...(body.callToAction ? ["callToAction"] : [])].join(",");
+  const mask = ["summary", ...(body.event ? ["event"] : []), ...(body.offer ? ["offer"] : []), ...(body.callToAction ? ["callToAction"] : []), ...(body.media ? ["media"] : [])].join(",");
   return call<GbpPost>(token, `${googleBase("v4")}/v4/${name}?${new URLSearchParams({ updateMask: mask })}`, { method: "PATCH", body: JSON.stringify(body) });
 }
 

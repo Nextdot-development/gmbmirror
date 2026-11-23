@@ -1,6 +1,6 @@
+import { GooglePermissions } from "@/components/GooglePermissions";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { GoogleLogo } from "@phosphor-icons/react/dist/ssr";
 import { requireBusiness } from "@/lib/ctx";
 import { db } from "@/lib/store";
 import { env } from "@/lib/env";
@@ -60,8 +60,7 @@ export default async function ConnectGoogle({ searchParams }: { searchParams: Pr
         {now === "not_connected" || now === "reconnect" ? (
           <div className="flex flex-col items-start gap-3">
             {now === "reconnect" ? <p role="alert" className="body-6 text-warn">Your Google sign-in has expired or was removed. Sign in again to continue.</p> : null}
-            <a href={START} className="btn btn-primary"><GoogleLogo size={18} weight="bold" aria-hidden /> {now === "reconnect" ? "Reconnect Google" : "Connect Google Business Profile"}</a>
-            <p className="caption-2 text-muted">You approve one permission: manage your Business Profile. We never see your password, and nothing is published without your approval.</p>
+            <GooglePermissions startHref={START} label={now === "reconnect" ? "Reconnect Google" : "Connect Google Business Profile"} />
           </div>
         ) : null}
 

@@ -33,7 +33,7 @@ export default async function Reviews({ searchParams }: { searchParams: Promise<
   const sp = await searchParams;
   const show: Show = sp.show === "replied" || sp.show === "all" ? sp.show : "waiting";
   const token = pageToken(sp.page);
-  const { user, scope, business: b } = await requireBusiness();
+  const { user, scope, business: b } = await requireBusiness(["google", "replies", "review_stats", "automation_log"]);
   const [result, replies, google, autoLog] = await Promise.all([loadReviews(scope, token), db.getReplies(scope), db.getGoogle(scope), db.getLocal<AutomationLogEntry[]>(scope, "automation_log", [])]);
   const automation = b.automation ?? defaultAutomation();
   const { reviews, source, error } = result;

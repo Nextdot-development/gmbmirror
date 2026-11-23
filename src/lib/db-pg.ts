@@ -41,13 +41,27 @@ export async function closePool() {
   if (p) await p.end();
 }
 
+/** Queries slower than this are logged (statement start only, never the values). DB_SLOW_MS overrides. */
+const SLOW_MS = Number(process.env.DB_SLOW_MS) > 0 ? Number(process.env.DB_SLOW_MS) : 250;
+const slowLog = (sql: string, ms: number) => {
+  if (ms >= SLOW_MS) console.warn(`[db] slow ${Math.round(ms)}ms: ${sql.replace(/\s+/g, " ").trim().slice(0, 90)}`);
+};
+
 export async function query<T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T[]> {
-  return (await pool().query(sql, params)).rows as T[];
+  const t0 = performance.now();
+  try {
+    return (await pool().query(sql, params)).rows as T[];
+  } finally {
+    slowLog(sql, performance.now() - t0);
+  }
 }
 
-/** Runs `fn` in one transaction (committed, or rolled back on any error). */
+/** Runs `fn` in one transaction (committed, or rolled back on any error). Slow transactions are logged. */
 export async function tx<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
+  const t0 = performance.now();
   const c = await pool().connect();
+  const waited = performance.now() - t0;
+  if (waited >= SLOW_MS) console.warn(`[db] waited ${Math.round(waited)}ms for a connection (pool size ${process.env.DATABASE_POOL_MAX || 3})`);
   try {
     await c.query("begin");
     const out = await fn(c);
@@ -58,11 +72,15 @@ export async function tx<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
     throw e;
   } finally {
     c.release();
+    slowLog("transaction", performance.now() - t0);
   }
 }
 
 /** Serialises read-change-write steps on one record across every server instance, until the transaction ends. */
 const lock = (c: PoolClient, userId: string, what: string) => c.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`${userId}/${what}`]);
+
+/** Per-user records shared by every location (supabase/migrations: user_records). */
+export const USER_KEYS = ["ai_usage", "notifications", "email_log"];
 
 export const PG_LOCATION_KEYS = ["business", "checks", "replies", "posts", "guide", "places", "growth", "automation_log", "reports", "share_events", "review_stats", "insights_notes", "gbp_scores"];
 
@@ -70,7 +88,7 @@ type Route = { t: "index" } | { t: "user"; key: string } | { t: "google"; loc: s
 
 export function route(key: string): Route {
   if (key === "locations") return { t: "index" };
-  if (key === "ai_usage") return { t: "user", key };
+  if (USER_KEYS.includes(key)) return { t: "user", key };
   const m = key.match(/^loc:([A-Za-z0-9_-]{1,40}):(.+)$/);
   const loc = m ? m[1] : "main", k = m ? m[2] : key;
   if (k === "google") return { t: "google", loc };
@@ -81,10 +99,15 @@ export function route(key: string): Route {
 type Index = { active: string; ids: string[]; mainRemoved?: boolean };
 
 async function readIndex(c: PoolClient | Pool, userId: string): Promise<Index | null> {
-  const acc = (await c.query("select active_location, main_removed from public.accounts where user_id = $1", [userId])).rows[0];
+  // One round trip: the account row and its locations in order.
+  const acc = (await c.query(
+    `select a.active_location, a.main_removed,
+            coalesce((select array_agg(l.id order by l.position, l.created_at) from public.locations l where l.user_id = a.user_id), '{}') as ids
+       from public.accounts a where a.user_id = $1`,
+    [userId],
+  )).rows[0];
   if (!acc) return null;
-  const ids = (await c.query("select id from public.locations where user_id = $1 order by position, created_at", [userId])).rows.map((r) => r.id as string);
-  return { active: acc.active_location, ids, ...(acc.main_removed ? { mainRemoved: true } : {}) };
+  return { active: acc.active_location, ids: acc.ids as string[], ...(acc.main_removed ? { mainRemoved: true } : {}) };
 }
 
 /** Saves the location list: ids no longer listed are deleted with everything they hold (removing a location). */
@@ -155,6 +178,36 @@ export async function pgGet<T>(userId: string, key: string, fallback: T): Promis
   return v === undefined || v === null ? fallback : (v as T);
 }
 
+/**
+ * Several stored values of one user in one round trip (location records of any locations, and Google connections).
+ * Returns the stored value for each key found; keys not found are absent. The location index is not included.
+ */
+export async function pgGetMany(userId: string, keys: string[]): Promise<Record<string, unknown>> {
+  const locs: string[] = [], locKeys: string[] = [], googleLocs: string[] = [], userKeys: string[] = [];
+  const back = new Map<string, string>();
+  for (const key of keys) {
+    const r = route(key);
+    if (r.t === "loc") { locs.push(r.loc); locKeys.push(r.key); back.set(`L|${r.loc}|${r.key}`, key); }
+    else if (r.t === "google") { googleLocs.push(r.loc); back.set(`G|${r.loc}`, key); }
+    else if (r.t === "user") { userKeys.push(r.key); back.set(`U|${r.key}`, key); }
+  }
+  const rows = await query<{ t: string; loc: string; key: string; value: unknown }>(
+    `select 'L' as t, location_id as loc, key, value from public.location_records
+       where user_id = $1 and (location_id, key) in (select * from unnest($2::text[], $3::text[]))
+     union all
+     select 'G', location_id, 'google', connection from public.google_connections where user_id = $1 and location_id = any($4::text[])
+     union all
+     select 'U', '', key, value from public.user_records where user_id = $1 and key = any($5::text[])`,
+    [userId, locs, locKeys, googleLocs, userKeys],
+  );
+  const out: Record<string, unknown> = {};
+  for (const r of rows) {
+    const k = back.get(r.t === "L" ? `L|${r.loc}|${r.key}` : r.t === "G" ? `G|${r.loc}` : `U|${r.key}`);
+    if (k) out[k] = r.value;
+  }
+  return out;
+}
+
 export async function pgSet(userId: string, key: string, value: unknown): Promise<void> {
   const r = route(key);
   await tx(async (c) => {
@@ -199,6 +252,13 @@ export async function pgDelete(userId: string, key: string): Promise<void> {
 /** Everything the user has: the account row and, through foreign keys, every location, record, connection and job. */
 export async function pgDeleteAccount(userId: string): Promise<void> {
   await query("delete from public.accounts where user_id = $1", [userId]);
+}
+
+/** Every location's business name for one user, in one query (the app's location menu). */
+export async function pgBusinessNames(userId: string): Promise<Record<string, string | undefined>> {
+  const rows = await query<{ location_id: string; name: string | null }>(
+    "select location_id, value->>'name' as name from public.location_records where user_id = $1 and key = 'business'", [userId]);
+  return Object.fromEntries(rows.map((r) => [r.location_id, r.name ?? undefined]));
 }
 
 export async function pgListUserIds(): Promise<string[]> {

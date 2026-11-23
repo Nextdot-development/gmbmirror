@@ -25,10 +25,13 @@ test.describe("public pages", () => {
     for (const [path, title] of [["/privacy", "Privacy policy | GMBmirror"], ["/terms", "Terms of service | GMBmirror"]]) {
       await page.goto(path);
       await expect(page).toHaveTitle(title);
-      await expect(page.locator("main").getByRole("link", { name: EMAIL })).toHaveAttribute("href", `mailto:${EMAIL}`);
+      // Several contact links on the longer pages: every one is the support address.
+      const links = page.locator("main").getByRole("link", { name: EMAIL });
+      expect(await links.count()).toBeGreaterThan(0);
+      for (const href of await links.evaluateAll((as) => as.map((a) => a.getAttribute("href")))) expect(href).toBe(`mailto:${EMAIL}`);
       await noOldName(page);
     }
-    await expect(page.locator("main")).toContainText("GMBmirror helps you manage a Google Business Profile");
+    await expect(page.locator("main")).toContainText("GMBmirror helps you manage Google Business Profile locations you are authorised to manage");
 
     const before = consoleErrors.length;
     const res = await page.goto("/no-such-page");

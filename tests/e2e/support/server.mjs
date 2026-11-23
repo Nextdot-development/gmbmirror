@@ -92,7 +92,12 @@ const base = {
   GOOGLE_PLACES_API_KEY: "e2e-places-key",
   GOOGLE_PLACES_BASE_URL: `http://127.0.0.1:${MOCK_PORT}/v1`,
 };
-const gbpEnv = { ...base, NEXT_PUBLIC_APP_URL: `http://localhost:${GBP_PORT}`, GBP_API_APPROVED: "true", GOOGLE_API_BASE_URL: `http://127.0.0.1:${MOCK_PORT}/gapi` };
+// The Business Profile server also has email switched on, against a Resend stand-in (the main server keeps the
+// "email not set up" state). Nothing reaches Resend.
+const gbpEnv = {
+  ...base, NEXT_PUBLIC_APP_URL: `http://localhost:${GBP_PORT}`, GBP_API_APPROVED: "true", GOOGLE_API_BASE_URL: `http://127.0.0.1:${MOCK_PORT}/gapi`,
+  RESEND_API_KEY: "re_e2e_fake_key_0123456789", EMAIL_FROM: "GMBmirror <notifications@e2e.example.test>", RESEND_API_BASE_URL: `http://127.0.0.1:${MOCK_PORT}/resend`,
+};
 const directEnv = { ...base, NEXT_PUBLIC_APP_URL: `http://localhost:${DIRECT_PORT}`, TRUSTED_PROXY_HOPS: "0" };
 const { GOOGLE_PLACES_API_KEY: _pk, GOOGLE_PLACES_BASE_URL: _pb, ...noPlacesEnv } = base;
 const noplacesEnv = { ...noPlacesEnv, NEXT_PUBLIC_APP_URL: `http://localhost:${NOPLACES_PORT}` };
@@ -387,6 +392,8 @@ let mode = "named";
 let answer = "";
 let calls = [];
 let ready = false;
+/** Emails the app sent to the Resend stand-in (attachments: name and first bytes only). */
+let emails = [];
 let stopping = false;
 const servers = [];
 
@@ -404,6 +411,7 @@ http
       return res.end("ok");
     }
     if (u.pathname === "/calls") return res.end(JSON.stringify(calls));
+    if (u.pathname === "/emails") return res.end(JSON.stringify(emails));
     if (u.pathname === "/places-finds") return res.end(JSON.stringify(finds));
     if (u.pathname === "/gbp-calls") return res.end(JSON.stringify({ calls: gbp.calls, refreshes: gbp.refreshes, revoked: gbp.revoked, posts: gbp.posts, replies: gbp.replies }));
     if (u.pathname === "/gbp-mode") {
@@ -427,6 +435,12 @@ http
     req.on("end", () => {
       if (u.pathname.startsWith("/v1/places")) return placesApi(req, res, u, body);
       if (u.pathname.startsWith("/gapi/")) return gbpApi(req, res, u, body);
+      if (u.pathname === "/resend/emails") {
+        const j = JSON.parse(body || "{}");
+        emails.push({ ...j, attachments: (j.attachments ?? []).map((x) => ({ filename: x.filename, head: Buffer.from(x.content, "base64").subarray(0, 5).toString("latin1") })), auth: req.headers.authorization, key: req.headers["idempotency-key"] });
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ id: `em_${emails.length}` }));
+      }
       const j = JSON.parse(body || "{}");
       const system = typeof j.system === "string" ? j.system : "";
       calls.push({ system, user: j.messages?.[0]?.content, model: j.model });

@@ -178,6 +178,8 @@ export type PostDraft = {
   /** Required by Google for EVENT and OFFER posts. Dates are local "YYYY-MM-DDTHH:mm". */
   event?: { title: string; start: string; end: string };
   offer?: { couponCode?: string; termsConditions?: string; redeemOnlineUrl?: string };
+  /** A public https link to a photo. Google downloads it when the post is published (sent as the post's media). */
+  imageUrl?: string;
   status: "draft" | "approved" | "posted";
   warnings: string[];
   /** Last publish failure, shown on the post until the next attempt. */

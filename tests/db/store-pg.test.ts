@@ -166,3 +166,25 @@ test("Row Level Security: the public key reads only its own non-sensitive rows, 
   await assert.rejects(asRole("authenticated", a, "update public.location_records set value = '{}'::jsonb returning 1").then((r) => { if (r.length === 0) throw new Error("row-level security: no rows updated"); }), /row-level security/);
   await assert.rejects(asRole("authenticated", a, "select * from public.claim_next_job(now(), 60)"), /permission denied/, "the job function is not callable with the public key");
 });
+
+test("batched reads: pgGetMany returns exactly the asked records of one user, never another user's or location's; names in one query", async () => {
+  const { db } = store;
+  const { pgGetMany, pgBusinessNames } = await import("@/lib/db-pg");
+  const a = await authUser(t.admin, "batch-a@example.test"), b = await authUser(t.admin, "batch-b@example.test");
+  await db.saveBusiness({ userId: a, loc: "main" }, biz("A main"));
+  await db.updateLocations(a, (idx) => ({ active: "main", ids: [...idx.ids, "x2"] }));
+  await db.saveBusiness({ userId: a, loc: "x2" }, biz("A second"));
+  await db.savePosts({ userId: a, loc: "x2" }, [{ id: "p", text: "second location post", kind: "STANDARD", status: "draft", warnings: [], createdAt: "" }]);
+  await db.saveGoogle({ userId: a, loc: "main" }, { email: "g@example.test", tokens: "iv.tag.enc", connectedAt: "2026-11-23T00:00:00Z" });
+  await db.saveBusiness({ userId: b, loc: "main" }, biz("B main"));
+  const got = await pgGetMany(a, ["business", "posts", "google", "loc:x2:business", "loc:x2:posts", "loc:x2:google", "ai_usage"]);
+  assert.deepEqual(Object.keys(got).sort(), ["business", "google", "loc:x2:business", "loc:x2:posts"]);
+  assert.equal((got.business as { name: string }).name, "A main");
+  assert.equal((got["loc:x2:posts"] as { text: string }[])[0].text, "second location post");
+  assert.deepEqual(await pgGetMany(b, ["business", "loc:x2:business", "google"]), { business: (await db.getBusiness({ userId: b, loc: "main" }))! });
+  assert.deepEqual(await pgBusinessNames(a), { main: "A main", x2: "A second" });
+  // Outside a page render, preload does nothing and reads always go to the database.
+  await db.preload({ userId: a, loc: "main" }, ["business"]);
+  await t.admin.query("update public.location_records set value = jsonb_set(value, '{name}', '\"A renamed\"') where user_id = $1 and location_id = 'main' and key = 'business'", [a]);
+  assert.equal((await db.getBusiness({ userId: a, loc: "main" }))!.name, "A renamed");
+});

@@ -1,9 +1,12 @@
 "use server";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
-import { logIn, logOut, requestPasswordReset, requireUser, setNewPassword, signUp } from "@/lib/session";
+import { deleteLogin, getUser, logIn, logOut, requestPasswordReset, requireUser, requireVerifiedUser, setNewPassword, signUp } from "@/lib/session";
+import { notifyAccountDeleted, notifyReport, notifySecurity, savePrefs, sendSupportMessage } from "@/lib/notify";
+import { emailConfigured } from "@/lib/email";
 import { requireScope } from "@/lib/ctx";
 import { db, type Scope } from "@/lib/store";
 import { aiGrowthRecommendations, draftActionContent, draftPost, draftPostVariants, draftReply, explainCompetitors, explainInsights, METHODOLOGY, runVisibility, visibilityFixes, type ReplyVariant } from "@/lib/ai";
@@ -18,11 +21,13 @@ import { REPLY_MAX_BYTES, updateReply } from "@/lib/gbp-api";
 import { publishPost, scheduleKey, schedulePrefix } from "@/lib/post-publish";
 import { cancelJobs, cancelLocationJobs, cancelMatching, enqueue } from "@/lib/jobs";
 import { env } from "@/lib/env";
+import { BRAND } from "@/lib/brand";
+const BRAND_EMAIL = BRAND.email;
 import { clearShared, clientIp, LIMITS, peekShared, refundShared, takeShared, waitMessage } from "@/lib/ratelimit";
 import { recognisedDevice, rememberDevice } from "@/lib/device";
 import { AUDIT_ITEMS, CATEGORIES, categoryInfo, CHATGPT_PREPARE } from "@/lib/business";
 import { defaultCategory, forgetGoogleValues } from "@/lib/business-sync";
-import type { Business, GoogleConnection, GoogleVerdict, GridScan, PostDraft, ReplyDraft, ReplyHistoryEntry } from "@/lib/types";
+import type { Business, GoogleConnection, GoogleVerdict, GridScan, MonthlyReport, PostDraft, ReplyDraft, ReplyHistoryEntry } from "@/lib/types";
 import { metricsForHistory } from "@/lib/competition";
 import { historyFor, tagHistory } from "@/lib/listing-history";
 import { categoryQuery, competitors, findPlaces, isNotFound, placeNames, placeSummary, profileAudit, rankGrid, validPlaceId, type AuditItem, type PlaceSummary } from "@/lib/places";
@@ -59,6 +64,23 @@ function postCta(fd: FormData): { value?: PostDraft["callToAction"] } | { error:
   const url = String(fd.get("ctaUrl") ?? "").trim();
   if (!/^https?:\/\/\S+\.\S+$/i.test(url)) return { error: "The button needs a link that starts with http:// or https://." };
   return { value: { actionType: type as Exclude<(typeof CTA_TYPES)[number], "CALL">, url } };
+}
+
+/**
+ * The optional photo of a post: a public https link that Google downloads when it publishes the post. The server
+ * never fetches it (no requests to addresses people type). Local and private network addresses are refused, since
+ * Google could not reach them anyway.
+ */
+function postImage(raw: string): { value?: string } | { error: string } {
+  if (!raw) return {};
+  let u: URL;
+  try { u = new URL(raw); } catch { return { error: "The photo link is not a valid web address." }; }
+  if (u.protocol !== "https:") return { error: "The photo link must start with https://." };
+  if (raw.length > 2000) return { error: "The photo link is too long." };
+  const h = u.hostname.toLowerCase();
+  if (h === "localhost" || h.endsWith(".local") || h.endsWith(".internal") || /^\[|^\d+\.\d+\.\d+\.\d+$/.test(h) || !h.includes(".")) return { error: "Use a public link to the photo (a web address, not a local or numeric one)." };
+  if (u.username || u.password) return { error: "The photo link cannot contain a user name or password." };
+  return { value: u.toString() };
 }
 
 /** A real local date-time from a datetime-local input ("YYYY-MM-DDTHH:mm"), rejecting values like 30 February. */
@@ -148,12 +170,13 @@ export async function requestPasswordResetAction(_: FormState, fd: FormData): Pr
 
 /** Sets a new password after the reset link signed the person in. */
 export async function setNewPasswordAction(_: FormState, fd: FormData): Promise<FormState> {
-  await requireUser();
+  const user = await requireVerifiedUser();
   const parsed = z.object({ password: passwordSchema, confirm: z.string() }).refine((v) => v.password === v.confirm, { message: "The two passwords are different.", path: ["confirm"] })
     .safeParse({ password: fd.get("password"), confirm: fd.get("confirm") });
   if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error) };
   const r = await setNewPassword(parsed.data.password);
   if (r.error) return { error: r.error };
+  after(() => notifySecurity(user, "password_changed").then(() => undefined, () => undefined));
   redirect("/app?password=updated");
 }
 
@@ -421,6 +444,10 @@ export async function disconnectGoogleAction(fd: FormData) {
   const revoked = conn ? (shared ? false : await revokeGoogle(conn)) : true;
   // The connection record holds the tokens, the chosen location, its profile snapshot and insights: all removed.
   await db.deleteGoogle(scope);
+  if (conn) {
+    const name = (await db.getBusiness(scope))?.name;
+    after(() => notifySecurity(user, "google_disconnected", `Google account: ${conn.email ?? "unknown"}${name ? `, location: ${name}` : ""}.`).then(() => undefined, () => undefined));
+  }
   revalidatePath("/app", "layout");
   const page = fd?.get("back") === "settings" ? "/app/settings" : "/app/google";
   redirect(`${page}?disconnected=${shared ? "shared" : revoked ? "1" : "local"}`);
@@ -756,9 +783,12 @@ export async function postComposerAction(_: FormState, fd: FormData): Promise<Fo
     offer = { couponCode: couponCode || undefined, termsConditions: termsConditions || undefined, redeemOnlineUrl: redeemOnlineUrl || undefined };
   }
 
+  const image = postImage(str("imageUrl"));
+  if ("error" in image) return fail(image.error);
+
   const warnings = b.type === "healthcare" ? medicalWarnings([text, event?.title ?? ""].join(" ")) : [];
   const posts = await db.getPosts(scope);
-  const p: PostDraft = { id: randomUUID(), text, kind, scheduledFor, scheduledAt, callToAction: cta.value, event, offer, status: "draft", warnings, createdAt: new Date().toISOString() };
+  const p: PostDraft = { id: randomUUID(), text, kind, scheduledFor, scheduledAt, callToAction: cta.value, event, offer, imageUrl: image.value, status: "draft", warnings, createdAt: new Date().toISOString() };
   await db.savePosts(scope, [p, ...posts]);
   revalidatePath("/app/posts");
   return { ok: warnings.length ? "Saved as a draft. Read the notes before you approve it." : "Saved as a draft.", saved: Date.now() };
@@ -1176,6 +1206,37 @@ export async function deleteAllDataAction() {
   redirect("/app/onboarding");
 }
 
+/**
+ * Deletes the whole account: cancels Google access for every connection, deletes all stored data in every location
+ * (jobs, reports, tokens, preferences and email log included) and the sign-in account itself, then signs out.
+ * The owner types their email address to confirm. The confirmation page and email say only what was really done.
+ */
+export async function deleteAccountAction(_: FormState, fd: FormData): Promise<FormState> {
+  // Confirmed with the Auth server, not only the session token: this is irreversible.
+  const user = await requireVerifiedUser();
+  const typed = String(fd.get("confirmEmail") ?? "").trim().toLowerCase();
+  const keep = { confirmEmail: String(fd.get("confirmEmail") ?? "") };
+  if (!typed || typed !== user.email.trim().toLowerCase()) return { fieldErrors: { confirmEmail: "Type your account email address exactly to confirm." }, values: keep };
+  if (fd.get("understand") !== "on") return { fieldErrors: { understand: "Tick the box to confirm you understand this cannot be undone." }, values: keep };
+  const { ids } = await db.getLocations(user.id);
+  const grants: GoogleConnection[] = [];
+  for (const loc of ids) {
+    const conn = await db.getGoogle({ userId: user.id, loc });
+    if (conn && !grants.some((g) => sameGrant(g, conn))) grants.push(conn);
+  }
+  let googleRevoked = 0, googleFailed = 0;
+  for (const g of grants) (await revokeGoogle(g)) ? googleRevoked++ : googleFailed++;
+  await db.deleteAccountData(user.id);
+  await clearShared(`reset:email:${user.email.trim().toLowerCase()}`).catch(() => undefined);
+  const loginDeleted = await deleteLogin(user.id);
+  if (!loginDeleted) {
+    return { error: `Your data was deleted, but the sign-in account could not be removed right now. Nothing else is stored. Write to ${BRAND_EMAIL} and we will remove it.` };
+  }
+  const email = user.email;
+  after(() => notifyAccountDeleted(email, { googleRevoked, googleFailed }).then(() => undefined, () => undefined));
+  redirect(`/account-deleted?google=${grants.length === 0 ? "none" : googleFailed ? "partial" : "revoked"}`);
+}
+
 /* ---------------- Growth recommendations and action plans ---------------- */
 
 export type GrowthRefresh = { status: "fresh" | "updated" | "rules" | "no-data" | "error"; message?: string };
@@ -1257,4 +1318,52 @@ export async function draftActionContentAction(_: DraftState, fd: FormData): Pro
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Could not draft the content." };
   }
+}
+
+
+/* ---------------- Email ---------------- */
+
+/** The owner's email choices (Settings > Email notifications). Security notices are always sent. */
+export async function saveNotificationPrefsAction(_: FormState, fd: FormData): Promise<FormState> {
+  const user = await requireUser();
+  const on = (k: string) => fd.get(k) === "on";
+  await savePrefs(user.id, { reportEmails: on("reportEmails"), jobAlerts: on("jobAlerts"), postPublished: on("postPublished") });
+  revalidatePath("/app/settings");
+  return { ok: "Email choices saved." };
+}
+
+/** Emails one of the current location's reports, as a PDF, to the account's own address. */
+export async function emailReportAction(_: FormState, fd: FormData): Promise<FormState> {
+  const { user, scope } = await requireScope();
+  if (!emailConfigured()) return { error: "Email is not set up on this server yet, so nothing was sent. Download the PDF instead." };
+  const r = (await db.getLocal<MonthlyReport[]>(scope, "reports", [])).find((x) => x.id === String(fd.get("id") ?? ""));
+  if (!r) return { error: "Report not found." };
+  const budget = await takeShared(`report-email:${user.id}`, LIMITS.reportEmailPerUser);
+  if (!budget.ok) return { error: waitMessage("report emails", budget.retryAfterSec) };
+  const out = await notifyReport(scope, r, true);
+  if (out.status === "accepted") return { ok: `Sent to ${user.email}. Resend accepted it for delivery; check your inbox and spam folder in a few minutes.` };
+  if (out.status === "failed") return { error: `The email could not be sent: ${out.error}` };
+  return { error: out.status === "skipped" ? `Not sent: ${out.reason}` : "Email is not set up on this server yet, so nothing was sent." };
+}
+
+const contactSchema = z.object({
+  name: z.string().trim().min(1, "Enter your name.").max(100),
+  email: emailSchema,
+  topic: z.enum(["Question", "Problem or bug", "Billing", "Privacy or data", "Other"], { message: "Choose a topic." }),
+  message: z.string().trim().min(10, "Write at least a sentence.").max(5000, "Keep it under 5,000 characters."),
+});
+
+/** The public contact form. Sent to the support address only when email is set up; never claims otherwise. */
+export async function contactAction(_: FormState, fd: FormData): Promise<FormState> {
+  // A field people never see: automated form fillers complete it, and get the normal answer with nothing sent.
+  if (String(fd.get("website") ?? "").trim()) return { ok: "Thank you. Your message was sent." };
+  const parsed = contactSchema.safeParse({ name: fd.get("name"), email: fd.get("email"), topic: fd.get("topic"), message: fd.get("message") });
+  if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error), values: vals(fd) };
+  if (!emailConfigured()) return { error: `The contact form is not connected to email yet. Please write to ${BRAND_EMAIL} directly.`, values: vals(fd) };
+  const ip = await takeShared(`contact:ip:${await clientIp()}`, LIMITS.contactPerIp);
+  if (!ip.ok) return { error: waitMessage("messages", ip.retryAfterSec), values: vals(fd) };
+  const user = await getUser();
+  const out = await sendSupportMessage({ ...parsed.data, userId: user?.id });
+  if (out.status === "accepted") return { ok: "Thank you. Your message was sent. We answer by email, usually within two working days." };
+  return { error: `Your message could not be sent right now. Please write to ${BRAND_EMAIL} directly.`, values: vals(fd) };
 }

@@ -160,7 +160,14 @@ const PER_PASS = 60;
  * Runs due jobs for the given users (default: every user with data). Due jobs of all users are collected first and
  * run by priority, so one busy account cannot delay another's scheduled post. One pass at a time per process.
  */
-export async function runDueJobs(handlers: Partial<Record<JobKind, Handler>>, opts: { userIds?: string[]; at?: Date; budgetMs?: number } = {}): Promise<{ ran: number; results: { id: string; kind: JobKind; status: JobStatus }[]; skipped?: string }> {
+export type RunOpts = { userIds?: string[]; at?: Date; budgetMs?: number; onFailed?: (userId: string, job: Job) => Promise<unknown> };
+
+/** Tells the owner about a job that failed for good. Never stops the run. */
+async function failedHook(opts: RunOpts, userId: string, job: Job | undefined) {
+  if (job?.status === "failed" && opts.onFailed) await opts.onFailed(userId, job).catch((e) => console.error("[jobs] failure notice not sent:", e instanceof Error ? e.message : e));
+}
+
+export async function runDueJobs(handlers: Partial<Record<JobKind, Handler>>, opts: RunOpts = {}): Promise<{ ran: number; results: { id: string; kind: JobKind; status: JobStatus }[]; skipped?: string }> {
   if (env.mode() === "supabase") return runDueJobsPg(handlers, opts);
   if (runner.__gmbJobsBusy) return { ran: 0, results: [], skipped: "A run is already in progress." };
   runner.__gmbJobsBusy = true;
@@ -195,6 +202,7 @@ export async function runDueJobs(handlers: Partial<Record<JobKind, Handler>>, op
       const runAt = opts.at ? at : now();
       await update(userId, (jobs) => jobs.map((x) => (x.id === claimed!.id ? (final = applyOutcome(x, outcome, runAt)) : x)));
       results.push({ id: claimed.id, kind: claimed.kind, status: final?.status ?? "failed" });
+      await failedHook(opts, userId, final);
     }
   } finally {
     runner.__gmbJobsBusy = false;
@@ -209,7 +217,7 @@ export async function runDueJobs(handlers: Partial<Record<JobKind, Handler>>, op
  * mid-job (function timeout, crash) leaves the lease to expire; the job is then taken again and retried.
  * `budgetMs`: stop starting new jobs after this long (keep it well under the function's time limit).
  */
-async function runDueJobsPg(handlers: Partial<Record<JobKind, Handler>>, opts: { at?: Date; budgetMs?: number }) {
+async function runDueJobsPg(handlers: Partial<Record<JobKind, Handler>>, opts: RunOpts) {
   const results: { id: string; kind: JobKind; status: JobStatus }[] = [];
   const started = Date.now();
   const budget = opts.budgetMs ?? 240_000;
@@ -227,6 +235,8 @@ async function runDueJobsPg(handlers: Partial<Record<JobKind, Handler>>, opts: {
     const next = applyOutcome(claimed.job, outcome, opts.at ? at : now());
     const saved = await pgFinish(claimed, next);
     results.push({ id: claimed.job.id, kind: claimed.job.kind, status: saved ? next.status : "running" });
+    // Only the runner that saved the final state tells the owner, so a failure is reported once.
+    if (saved) await failedHook(opts, claimed.userId, next);
   }
   return { ran: results.length, results };
 }

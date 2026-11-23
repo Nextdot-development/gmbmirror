@@ -25,7 +25,10 @@ async function run(req: NextRequest) {
   try {
     // Test servers only (JOBS_TEST_CLOCK=on): run as if it were a later time, to test schedules without waiting.
     const at = process.env.JOBS_TEST_CLOCK === "on" && req.nextUrl.searchParams.get("at") ? new Date(req.nextUrl.searchParams.get("at")!) : undefined;
+    const t0 = Date.now();
     const r = await runJobs({ ...(at && !Number.isNaN(at.getTime()) ? { at } : {}), budgetMs: 240_000 });
+    // One line per run that did work: how many jobs, how long (job kinds and outcomes only, nothing about users).
+    if (r.ran) console.log(`[jobs] ran ${r.ran} in ${Date.now() - t0}ms: ${r.results.map((x) => `${x.kind}=${x.status}`).join(", ")}`);
     return NextResponse.json(r);
   } catch (e) {
     console.error("[jobs] run failed", e instanceof Error ? e.message : e);

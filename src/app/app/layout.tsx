@@ -3,6 +3,7 @@ import { AppNav } from "@/components/AppNav";
 import { logOutAction } from "@/app/actions";
 import { requireUser } from "@/lib/session";
 import { db } from "@/lib/store";
+import { locationsOf } from "@/lib/ctx";
 import { LocationSwitcher } from "@/components/LocationSwitcher";
 
 export const dynamic = "force-dynamic";
@@ -10,9 +11,10 @@ export const metadata = { robots: { index: false, follow: false } };
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const idx = await db.getLocations(user.id);
-  // Names come from each location's own business details; a location still in onboarding is shown as new.
-  const locations = await Promise.all(idx.ids.map(async (id, i) => ({ id, name: (await db.getBusiness({ userId: user.id, loc: id }))?.name ?? `New location ${i + 1}` })));
+  const idx = await locationsOf(user.id);
+  // Names come from each location's own business details (one query); a location still in onboarding is shown as new.
+  const names = idx.ids.length > 1 ? await db.getBusinessNames(user.id, idx.ids) : {};
+  const locations = idx.ids.map((id, i) => ({ id, name: names[id] ?? `New location ${i + 1}` }));
   return (
     <div className="min-h-screen md:grid md:grid-cols-[232px_minmax(0,1fr)]">
       <aside className="flex flex-col gap-3 border-b border-line bg-surface px-4 py-3 md:sticky md:top-0 md:h-screen md:gap-6 md:border-b-0 md:border-r md:px-3 md:py-5">

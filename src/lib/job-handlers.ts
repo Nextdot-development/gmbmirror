@@ -7,8 +7,9 @@ import { GbpError, listReviews, updateReply } from "./gbp-api";
 import { publishPost } from "./post-publish";
 import { draftReply } from "./ai";
 import { autoBlockers, classifyReview, defaultAutomation, replyIssues } from "./review-safety";
-import { LIMITS, takeShared } from "./ratelimit";
+import { LIMITS, pruneLimits, takeShared } from "./ratelimit";
 import { buildMonthlyReport, previousMonth } from "./reports";
+import { notifyJobFailed, notifyPostPublished, notifyReport } from "./notify";
 import type { AutomationLogEntry, Job, PostDraft, ReplyDraft } from "./types";
 
 /** Background work, one handler per job kind. Handlers never publish anything the rules below do not allow. */
@@ -44,6 +45,7 @@ async function publishFor(scope: Scope, job: Job): Promise<JobOutcome> {
   if (r.ok) {
     await setPost(() => r.post);
     await logAutomation(scope, { action: "Scheduled post published", result: "done", detail: r.post.searchUrl ? `Google: ${r.post.googleState ?? "accepted"}` : "Google accepted it.", postId: p.id });
+    await notifyPostPublished(scope, job, p.text).catch(() => undefined);
     return { status: "succeeded", message: `Published to Google${r.post.googleState ? ` (${r.post.googleState})` : ""}.` };
   }
   await setPost((cur) => ({ ...cur, publishError: r.reason }));
@@ -119,7 +121,11 @@ async function refreshFor(scope: Scope): Promise<JobOutcome> {
 async function reportFor(scope: Scope, job: Job): Promise<JobOutcome> {
   if (!(await db.getBusiness(scope))) return { status: "cancelled", message: "The location has no business details." };
   const r = await buildMonthlyReport(scope, job.payload.month, "schedule");
-  return r.error ? { status: "retry", message: r.error } : { status: "succeeded", message: `Report for ${job.payload.month} created${r.summaryError ? ` (summary not written: ${r.summaryError})` : ""}.` };
+  if (r.error || !r.report) return { status: "retry", message: r.error ?? "The report was not saved." };
+  // The report exists either way; the email outcome is recorded in the job's message and the owner's email log.
+  const mail = await notifyReport(scope, r.report).catch((): { status: "failed"; error: string } => ({ status: "failed", error: "The email could not be prepared." }));
+  const emailed = mail.status === "accepted" ? " Emailed (accepted by Resend)." : mail.status === "failed" ? ` Email not sent: ${mail.error}` : mail.status === "skipped" ? ` Email not sent: ${mail.reason}` : " Email not set up.";
+  return { status: "succeeded", message: `Report for ${job.payload.month} created${r.summaryError ? ` (summary not written: ${r.summaryError})` : ""}.${emailed}` };
 }
 
 /**
@@ -179,7 +185,9 @@ export async function planRecurring(userId: string, at = new Date()) {
 
 /** One pass of the background runner: plan recurring work, then run what is due. */
 export async function runJobs(opts: { userIds?: string[]; at?: Date; budgetMs?: number } = {}) {
+  // Housekeeping: limit records that may contain an email or client address are not kept past a day.
+  await pruneLimits().catch((e) => console.error("[jobs] limit records not pruned:", e instanceof Error ? e.message : e));
   const users = opts.userIds ?? (await db.listUserIds());
   for (const u of users) await planRecurring(u, opts.at);
-  return runDueJobs(HANDLERS, { userIds: users, at: opts.at, budgetMs: opts.budgetMs });
+  return runDueJobs(HANDLERS, { userIds: users, at: opts.at, budgetMs: opts.budgetMs, onFailed: notifyJobFailed });
 }

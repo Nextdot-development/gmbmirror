@@ -10,7 +10,7 @@ import { CheckCircle, Question, WarningCircle, XCircle } from "@phosphor-icons/r
 export const metadata: Metadata = { title: "AI visibility" };
 
 export default async function Visibility() {
-  const { user, scope, business: b } = await requireBusiness();
+  const { user, scope, business: b } = await requireBusiness(["checks", "places"]);
   const checks = await db.getChecks(scope);
   const latest = checks[0];
   const ps = providers();

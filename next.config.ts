@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 const dev = process.env.NODE_ENV !== "production";
 
+const PDF_FILES = ["./src/assets/fonts/*.ttf", "./node_modules/harfbuzzjs/dist/*.wasm"];
+
 /**
  * Content Security Policy. Everything loads from this site only; the browser never talks to Google,
  * Supabase or an AI provider directly (those calls are made by the server).
@@ -39,9 +41,12 @@ const config: NextConfig = {
   turbopack: { root: __dirname },
   // HarfBuzz (PDF text shaping for Hindi) loads its WebAssembly file from its own package folder, so it is not bundled.
   serverExternalPackages: ["harfbuzzjs"],
-  // Files read at run time that a serverless deployment (Vercel) must ship with the report PDF route.
+  // Files read at run time that a serverless deployment (Vercel) must ship with every function that makes a report
+  // PDF: the download route, the reports page ("Email me this report") and the job runner (monthly report emails).
   outputFileTracingIncludes: {
-    "/app/reports/[id]/pdf": ["./src/assets/fonts/*.ttf", "./node_modules/harfbuzzjs/dist/*.wasm"],
+    "/app/reports/[id]/pdf": PDF_FILES,
+    "/app/reports": PDF_FILES,
+    "/api/jobs/run": PDF_FILES,
   },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];

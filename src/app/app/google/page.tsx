@@ -53,7 +53,11 @@ const STATUS: Record<ChecklistStatus, { t: string; c: string }> = {
 
 export default async function GooglePage({ searchParams }: { searchParams: Promise<ConnectParams> }) {
   const sp = await searchParams;
-  const { user, scope, business: initial } = await requireBusiness();
+  const { user, scope, business: initial } = await requireBusiness(["google", "places", "share_events", "gbp_scores"]);
+  // Reads that no Google step below can change start now and run alongside them.
+  const sharesP = db.getLocal<Record<string, Record<string, number>>>(scope, "share_events", {});
+  const placesP = db.getPlaces(scope);
+  const usedP = gridPointsUsed(user.id);
   let google = await db.getGoogle(scope);
   const before = gbpStatus(google);
   // Locations are listed only when one must be chosen, or the owner asked to change it (saves Google requests).
@@ -71,14 +75,16 @@ export default async function GooglePage({ searchParams }: { searchParams: Promi
   // A sync above may have filled details or changed the listing: show the business as stored now.
   const b = isLive ? ((await db.getBusiness(scope)) ?? initial) : initial;
   const reviewLink = b.placeId ? `https://search.google.com/local/writereview?placeid=${encodeURIComponent(b.placeId)}` : null;
-  const qr = reviewLink ? await QRCode.toDataURL(reviewLink, { margin: 2, width: 192 }) : null;
-  // A larger copy for printing; the browser adds the business name and saves it as a PNG.
-  const printQr = reviewLink ? await QRCode.toDataURL(reviewLink, { margin: 1, width: 800 }) : null;
+  // The profile score history is read after the sync above, which may have added to it. A larger QR copy is for
+  // printing; the browser adds the business name and saves it as a PNG.
+  const [qr, printQr, gbpScores, shares, allPlaces, used] = await Promise.all([
+    reviewLink ? QRCode.toDataURL(reviewLink, { margin: 2, width: 192 }) : null,
+    reviewLink ? QRCode.toDataURL(reviewLink, { margin: 1, width: 800 }) : null,
+    db.getLocal<{ at: string; score: number; location: string }[]>(scope, "gbp_scores", []),
+    sharesP, placesP, usedP,
+  ]);
   const share = reviewLink ? reviewMessage(b, reviewLink) : null;
-  const gbpScores = await db.getLocal<{ at: string; score: number; location: string }[]>(scope, "gbp_scores", []);
-  const shares = await db.getLocal<Record<string, Record<string, number>>>(scope, "share_events", {});
   const placesOn = env.placesConfigured();
-  const allPlaces = await db.getPlaces(scope);
   // History shown here is only what was measured for the current listing; other listings' history is kept.
   const places = historyFor(allPlaces, b.placeId, categoryQuery(b));
   const earlier = otherListings(allPlaces, b.placeId);
@@ -89,7 +95,7 @@ export default async function GooglePage({ searchParams }: { searchParams: Promi
     ? AUDIT_POINTS.map((i) => ({ ...i, before: a2.items![i.key] ?? 0, after: a1.items![i.key] ?? 0 })).map((i) => ({ ...i, diff: i.after - i.before })).filter((i) => i.diff !== 0)
     : [];
   // The daily allowance is about cost, so it counts every scan of every location and listing.
-  const pointsLeft = Math.max(0, gridPointsPerDay() - (await gridPointsUsed(user.id)));
+  const pointsLeft = Math.max(0, gridPointsPerDay() - used);
   const placesNote = !placesOn
     ? "Live Google data needs GOOGLE_PLACES_API_KEY on the server. Ask whoever runs this app to add it."
     : !b.placeId

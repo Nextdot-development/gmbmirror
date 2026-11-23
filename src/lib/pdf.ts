@@ -105,7 +105,7 @@ type Hb = typeof import("harfbuzzjs");
 type HbFont = InstanceType<Hb["Font"]>;
 type Subsetter = (font: Uint8Array, glyphs: number[]) => Uint8Array;
 /** `chars`: glyph ID to the character that maps to it in the font's cmap (the reverse of the font's character table). */
-type Loaded = { hb: Hb; subset: Subsetter; fonts: Record<FontKey, { data: Uint8Array; font: HbFont; upem: number; chars: Map<number, string> }> };
+type Loaded = { hb: Hb; subset: Subsetter; fonts: Record<FontKey, { data: Uint8Array; font: HbFont; upem: number; chars: Map<number, string>; covers: Set<number> }> };
 const cache = globalThis as unknown as { __gmbPdfFonts?: Promise<Loaded> };
 
 /**
@@ -156,11 +156,13 @@ function loadFonts(): Promise<Loaded> {
       const face = new hb.Face(new hb.Blob(data));
       const font = new hb.Font(face);
       const chars = new Map<number, string>();
+      const covers = new Set<number>();
       for (const u of face.collectUnicodes()) {
         const gid = font.nominalGlyph(u);
+        if (gid) covers.add(u);
         if (gid && !chars.has(gid)) chars.set(gid, String.fromCodePoint(u));
       }
-      fonts[k] = { data, font, upem: face.upem, chars };
+      fonts[k] = { data, font, upem: face.upem, chars, covers };
     }
     return { hb, subset: await loadSubsetter(), fonts };
   })().catch((e) => {
@@ -291,7 +293,7 @@ async function unicodePdf(lines: PdfLine[]): Promise<Uint8Array> {
   for (const l of lines) {
     const size = l.size ?? 11, bold = Boolean(l.bold);
     y -= l.gap ?? 0;
-    for (const text of wrapShaped(L, text_(l.text), bold, size, W - 2 * M)) {
+    for (const text of wrapShaped(L, drawable(L, text_(l.text)), bold, size, W - 2 * M)) {
       if (y - size < M) flush();
       y -= size * 1.45;
       const parts: string[] = ["BT"];
@@ -369,6 +371,31 @@ async function unicodePdf(lines: PdfLine[]): Promise<Uint8Array> {
 
 /** Typographic characters the fonts may lack, made plain (the fonts have ₹, dashes and curly quotes). */
 const text_ = (s: string) => s.replace(/[▲]/g, "+").replace(/[▼]/g, "-");
+
+/** Plain stand-ins for symbols neither font has, so they are never silently dropped from a sentence. */
+const STAND_IN: Record<string, string> = { "★": "*", "☆": "*", "✓": "OK", "✔": "OK", "✗": "x", "✘": "x", "✕": "x", "→": "->", "←": "<-", "⚠": "!", "❌": "x", "✅": "OK" };
+const fontChars = new WeakMap<Loaded, Set<number>>();
+
+/**
+ * Replaces every character that neither embedded font can draw: a known symbol by its plain stand-in, anything else
+ * by "?" (as the Latin-only PDF does). Combining marks, joiners and spaces are kept (HarfBuzz handles them).
+ */
+function drawable(L: Loaded, text: string): string {
+  let have = fontChars.get(L);
+  if (!have) {
+    have = new Set<number>();
+    for (const f of Object.values(L.fonts)) for (const u of f.covers) have.add(u);
+    fontChars.set(L, have);
+  }
+  const ok = (c: string) => have!.has(c.codePointAt(0)!);
+  let out = "";
+  for (const ch of text) {
+    if (ch === "\uFE0F") continue; // emoji presentation selector: nothing to draw
+    if (ok(ch) || /\s|\p{M}|[\u200C\u200D]/u.test(ch) || [...ch.normalize("NFD")].every((c) => ok(c) || /\p{M}/u.test(c))) out += ch;
+    else out += STAND_IN[ch] ?? "?";
+  }
+  return out;
+}
 
 /** The report PDF: Helvetica for Latin-only text, the embedded Unicode fonts (shaped) for anything else. */
 export async function reportPdf(lines: PdfLine[]): Promise<Uint8Array> {

@@ -1,0 +1,79 @@
+{
+  "rtt": 2,
+  "runs": 5,
+  "at": "2026-11-23T04:42:39.145Z",
+  "rows": [
+    {
+      "page": "/app",
+      "status": 200,
+      "median_ms": 16,
+      "max_ms": 17,
+      "auth_calls": 0,
+      "db_round_trips": 2,
+      "html_kb": 46
+    },
+    {
+      "page": "/app/reviews",
+      "status": 200,
+      "median_ms": 14,
+      "max_ms": 16,
+      "auth_calls": 0,
+      "db_round_trips": 2,
+      "html_kb": 49
+    },
+    {
+      "page": "/app/posts",
+      "status": 200,
+      "median_ms": 21,
+      "max_ms": 23,
+      "auth_calls": 0,
+      "db_round_trips": 2,
+      "html_kb": 202
+    },
+    {
+      "page": "/app/reports",
+      "status": 200,
+      "median_ms": 17,
+      "max_ms": 19,
+      "auth_calls": 0,
+      "db_round_trips": 2,
+      "html_kb": 127
+    },
+    {
+      "page": "/app/locations",
+      "status": 200,
+      "median_ms": 13,
+      "max_ms": 14,
+      "auth_calls": 0,
+      "db_round_trips": 3,
+      "html_kb": 38
+    },
+    {
+      "page": "/app/settings",
+      "status": 200,
+      "median_ms": 13,
+      "max_ms": 15,
+      "auth_calls": 0,
+      "db_round_trips": 2,
+      "html_kb": 48
+    },
+    {
+      "page": "/app/google",
+      "status": 200,
+      "median_ms": 13,
+      "max_ms": 13,
+      "auth_calls": 0,
+      "db_round_trips": 2,
+      "html_kb": 60
+    },
+    {
+      "page": "/app/visibility",
+      "status": 200,
+      "median_ms": 10,
+      "max_ms": 10,
+      "auth_calls": 0,
+      "db_round_trips": 2,
+      "html_kb": 29
+    }
+  ]
+}
