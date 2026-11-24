@@ -25,7 +25,13 @@ export const LIMITS = {
   loginFailPerClient: { limit: 5, windowMs: 15 * 60_000 },
   /** Failed logins for one account from anywhere. Catches guessing spread over many addresses; recognised browsers are exempt. */
   loginFailPerAccount: { limit: 20, windowMs: 60 * 60_000 },
-  signupPerIp: { limit: 5, windowMs: 60 * 60_000 },
+  /**
+   * Sign-up attempts per client address. Many genuine people can share one address (mobile networks behind carrier
+   * NAT, offices, colleges), so this only stops bulk account creation; the per-email limit below stops one inbox
+   * being sent link after link. Supabase Auth applies its own email limits on top.
+   */
+  signupPerIp: { limit: 20, windowMs: 60 * 60_000 },
+  signupPerEmail: { limit: 3, windowMs: 60 * 60_000 },
   /** Password reset emails: per client address, and per email address. */
   resetPerIp: { limit: 5, windowMs: 60 * 60_000 },
   resetPerEmail: { limit: 3, windowMs: 60 * 60_000 },

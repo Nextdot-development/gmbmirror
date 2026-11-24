@@ -23,8 +23,9 @@ test("spoofed requests behind a proxy all land in the real client's bucket", () 
   const keys = new Set(Array.from({ length: 50 }, (_, i) => clientKeyFrom(`10.0.${i}.1, 172.16.${i}.9, 198.51.100.7`, 1)));
   assert.deepEqual([...keys], ["198.51.100.7"]);
   const k = `signup:ip:${[...keys][0]}:${Date.now()}`;
-  const results = Array.from({ length: 6 }, () => take(k, LIMITS.signupPerIp).ok);
-  assert.deepEqual(results, [true, true, true, true, true, false]);
+  const n = LIMITS.signupPerIp.limit;
+  const results = Array.from({ length: n + 1 }, () => take(k, LIMITS.signupPerIp).ok);
+  assert.deepEqual(results, [...Array(n).fill(true), false]);
 });
 
 test("anything that is not an IP address is not trusted", () => {

@@ -116,7 +116,11 @@ export async function signUpAction(_: FormState, fd: FormData): Promise<FormStat
   const parsed = z.object({ email: emailSchema, password: passwordSchema }).safeParse({ email: fd.get("email"), password: fd.get("password") });
   if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error), values: vals(fd) };
   const rl = await takeShared(`signup:ip:${await clientIp()}`, LIMITS.signupPerIp);
-  if (!rl.ok) return { error: waitMessage("sign up attempts", rl.retryAfterSec), values: vals(fd) };
+  if (!rl.ok) return { error: `${waitMessage("sign up attempts from this network", rl.retryAfterSec)} Already have an account? Log in instead.`, values: vals(fd) };
+  const byEmail = await takeShared(`signup:email:${parsed.data.email}`, LIMITS.signupPerEmail);
+  if (!byEmail.ok) {
+    return { error: `${waitMessage("sign up attempts for this email", byEmail.retryAfterSec)} If you already signed up, open the link we sent, or log in.`, values: vals(fd), resendFor: parsed.data.email };
+  }
   const r = await signUp(parsed.data.email, parsed.data.password);
   if (r.error) return { error: r.error, values: vals(fd) };
   // Only Supabase's own answer is reported: it sent the email (needsConfirm) or the address already has an account.
