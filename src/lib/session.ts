@@ -181,12 +181,29 @@ export function signupError(code?: string): string {
   }
 }
 
-export async function signUp(email: string, password: string): Promise<{ error?: string; needsConfirm?: boolean }> {
+/** Supabase could not hand the email to its mail server (SMTP not set up, refused, or down). */
+const emailSendFailed = (e: { message?: string; code?: string }) => /sending .*email|smtp|mail server/i.test(e.message ?? "");
+const SEND_FAILED = "We could not send the confirmation email just now, so the account cannot be confirmed yet. Try again in a few minutes. If it keeps happening, email gmbmirror@gmail.com.";
+const confirmRedirect = () => `${env.appUrl()}/auth/confirm?next=/app/onboarding`;
+
+/**
+ * Creates the account. With email confirmation on, Supabase sends the link and there is no session yet (needsConfirm).
+ * `existing`: the address already has a confirmed account; Supabase then sends nothing and says so only by returning
+ * a user without identities, so the message must not claim an email was sent.
+ */
+export async function signUp(email: string, password: string): Promise<{ error?: string; needsConfirm?: boolean; existing?: boolean }> {
   if (env.mode() === "supabase") {
     const sb = await supabaseServer();
     // The confirmation email links back to /auth/confirm on this site, which signs the person in.
-    const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: `${env.appUrl()}/auth/confirm?next=/app/onboarding` } });
-    if (error) return { error: signupError((error as { code?: string }).code) };
+    const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: confirmRedirect() } });
+    if (error) {
+      if (emailSendFailed(error)) {
+        console.error("[auth] confirmation email not sent:", error.message);
+        return { error: SEND_FAILED };
+      }
+      return { error: signupError((error as { code?: string }).code) };
+    }
+    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) return { existing: true };
     return { needsConfirm: !data.session };
   }
   const users = await readJson<Record<string, { id: string; email: string; hash: string }>>(USERS_FILE, {});
@@ -199,15 +216,31 @@ export async function signUp(email: string, password: string): Promise<{ error?:
   return {};
 }
 
+/** Sends the sign-up confirmation link again. The answer does not reveal whether the address has an account. */
+export async function resendConfirmation(email: string): Promise<{ error?: string }> {
+  if (env.mode() !== "supabase") return {};
+  const sb = await supabaseServer();
+  const { error } = await sb.auth.resend({ type: "signup", email, options: { emailRedirectTo: confirmRedirect() } });
+  if (!error) return {};
+  if (emailSendFailed(error)) {
+    console.error("[auth] confirmation email not sent:", error.message);
+    return { error: SEND_FAILED };
+  }
+  const code = (error as { code?: string }).code;
+  if (code === "over_email_send_rate_limit" || code === "over_request_rate_limit") return { error: "A link was sent very recently. Wait a minute, then try again." };
+  // Already confirmed or unknown address: answer as if sent, so this cannot be used to test addresses.
+  return {};
+}
+
 let dummy: string | undefined;
 const dummyHash = () => (dummy ??= hashPassword(randomBytes(16).toString("hex")));
 
-export async function logIn(email: string, password: string): Promise<{ error?: string }> {
+export async function logIn(email: string, password: string): Promise<{ error?: string; unconfirmed?: boolean }> {
   if (env.mode() === "supabase") {
     const sb = await supabaseServer();
     const { error } = await sb.auth.signInWithPassword({ email, password });
     // Only said after a correct password, so it does not reveal which emails have accounts.
-    if ((error as { code?: string } | null)?.code === "email_not_confirmed") return { error: "Confirm your email first: open the link we sent when you signed up, then log in." };
+    if ((error as { code?: string } | null)?.code === "email_not_confirmed") return { error: "Confirm your email first: open the link we sent when you signed up, then log in.", unconfirmed: true };
     return error ? { error: "Email or password is incorrect." } : {};
   }
   const users = await readJson<Record<string, { id: string; email: string; hash: string }>>(USERS_FILE, {});

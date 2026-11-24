@@ -54,6 +54,9 @@ const config: NextConfig = {
       { source: "/app/google", destination: "/app/google-profile", permanent: true },
       { source: "/app/visibility", destination: "/app/ai-visibility", permanent: true },
       { source: "/app/chatgpt", destination: "/app/chatgpt-guide", permanent: true },
+      // A Supabase email link that fell back to the Site URL (its redirect address was not on Supabase's allow list)
+      // lands on the home page with ?code=…; finish it where email links are handled. Not permanent: it depends on the query.
+      { source: "/", has: [{ type: "query", key: "code" }], destination: "/auth/confirm", permanent: false },
     ];
   },
   async headers() {

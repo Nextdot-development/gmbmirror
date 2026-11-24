@@ -53,6 +53,35 @@ test("callback errors: cancelled, forged or missing state, and a code Google rej
   await expect(page.locator('p[role="alert"]')).toHaveText("Something went wrong.");
 });
 
+test("callback: an expired sign-in, a missing code, and a signed-out visitor are refused without storing anything", async ({ page, account, context }) => {
+  const stateMessage = "The sign in could not be verified. Start the connection again.";
+  // Expired: the state cookies last 10 minutes; once the browser has dropped them, Google's answer is refused.
+  const start = await page.request.get("/api/google/start", { maxRedirects: 0 });
+  const state = new URL(start.headers().location).searchParams.get("state")!;
+  const cookies = await context.cookies();
+  expect(cookies.find((c) => c.name === "g_state")?.expires).toBeGreaterThan(Date.now() / 1000);
+  await context.clearCookies({ name: "g_state" });
+  await context.clearCookies({ name: "g_pkce" });
+  await page.goto(`/api/google/callback?code=e2e-good&state=${state}`);
+  await expect(page).toHaveURL(/\/app\/google-profile\?error=state$/);
+  await expect(page.locator('p[role="alert"]')).toHaveText(stateMessage);
+
+  // A real, current state but no code.
+  const again = await page.request.get("/api/google/start", { maxRedirects: 0 });
+  const fresh = new URL(again.headers().location).searchParams.get("state")!;
+  await page.goto(`/api/google/callback?state=${fresh}`);
+  await expect(page).toHaveURL(/error=state$/);
+  // The sign-in cookies are cleared after any answer, so the same state cannot be used again.
+  expect((await context.cookies()).some((c) => c.name === "g_state")).toBe(false);
+  expect(account.data().google).toBeUndefined();
+
+  // Signed out: the callback sends the visitor to log in and stores nothing.
+  await context.clearCookies();
+  await page.goto("/api/google/callback?code=e2e-good&state=whatever");
+  await expect(page).toHaveURL(/\/login$/);
+  expect(account.data().google).toBeUndefined();
+});
+
 test("connected (stored connection): account, location, not-switched-on note, and disconnect deletes the tokens", async ({ page, account }) => {
   // Only a real Google sign-in can create a connection, so the test writes one into the test server's own data.
   const d = readData();

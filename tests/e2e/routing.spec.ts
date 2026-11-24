@@ -106,3 +106,11 @@ test("signed out: a feature address asks to log in, then opens that page", async
   await page.getByRole("button", { name: "Log in" }).click();
   await expect(page).toHaveURL(at("/app"));
 });
+
+test("a Supabase email link that fell back to the home page is finished at /auth/confirm", async ({ request }) => {
+  const r = await request.get("/?code=not-a-real-code", { maxRedirects: 0 });
+  expect(r.status()).toBe(307);
+  expect(new URL(r.headers().location, "http://x").pathname + new URL(r.headers().location, "http://x").search).toBe("/auth/confirm?code=not-a-real-code");
+  // Without a code the home page is served as usual.
+  expect((await request.get("/", { maxRedirects: 0 })).status()).toBe(200);
+});

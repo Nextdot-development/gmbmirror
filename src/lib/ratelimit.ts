@@ -29,6 +29,9 @@ export const LIMITS = {
   /** Password reset emails: per client address, and per email address. */
   resetPerIp: { limit: 5, windowMs: 60 * 60_000 },
   resetPerEmail: { limit: 3, windowMs: 60 * 60_000 },
+  /** "Send the confirmation link again": per client address, and per email address. */
+  confirmPerIp: { limit: 5, windowMs: 60 * 60_000 },
+  confirmPerEmail: { limit: 3, windowMs: 60 * 60_000 },
   /** Emails sent for one account (notifications, reports), and support messages from visitors in total. */
   emailPerUser: { limit: 20, windowMs: 60 * 60_000 },
   emailSupport: { limit: 40, windowMs: 60 * 60_000 },

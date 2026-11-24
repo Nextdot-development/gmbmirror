@@ -222,6 +222,23 @@ test("OAuth: PKCE S256 challenge in the sign-in URL, with offline access and the
   assert.equal(u.searchParams.get("client_id"), "unit-client-id");
 });
 
+test("OAuth: exactly three scopes (Business Profile, sign-in identity, email) and the configured callback address", () => {
+  const before = process.env.GOOGLE_REDIRECT_URI;
+  try {
+    const scopes = (u: URL) => u.searchParams.get("scope")!.split(" ").sort();
+    process.env.GOOGLE_REDIRECT_URI = "https://gmbmirror.com/api/google/callback";
+    const prod = new URL(authUrl("st", "ch"));
+    assert.deepEqual(scopes(prod), ["email", "https://www.googleapis.com/auth/business.manage", "openid"]);
+    assert.equal(prod.searchParams.get("redirect_uri"), "https://gmbmirror.com/api/google/callback");
+    // Unset (local development): the app's own address plus /api/google/callback.
+    delete process.env.GOOGLE_REDIRECT_URI;
+    assert.match(new URL(authUrl("st", "ch")).searchParams.get("redirect_uri")!, /^http:\/\/localhost:\d+\/api\/google\/callback$/);
+  } finally {
+    if (before === undefined) delete process.env.GOOGLE_REDIRECT_URI;
+    else process.env.GOOGLE_REDIRECT_URI = before;
+  }
+});
+
 const idToken = (email: string) => `x.${Buffer.from(JSON.stringify({ email })).toString("base64url")}.y`;
 
 test("OAuth: code exchange sends the PKCE verifier, encrypts the tokens, and refuses a grant without the scope", async () => {

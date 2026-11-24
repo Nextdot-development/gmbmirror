@@ -219,3 +219,62 @@ Retried jobs never send twice (Resend idempotency keys: welcome, report, job fai
 (`ap-southeast-2`). Measured effect on signed-in pages: 430–640 ms → 10–21 ms of server time (see
 `docs/PERFORMANCE_AUDIT.md`). After deploying, check Vercel > Settings > Functions shows Sydney, and that the build
 log lists `syd1`. Page-speed lines appear in the logs as `[vitals] …`, slow queries as `[db] slow …`.
+
+
+## 13. Google Business Profile OAuth on gmbmirror.com (24 November 2026)
+
+**Callback:** `src/app/api/google/callback/route.ts` (the only one; `/api/google/start` begins the sign-in).
+Production redirect URI: **`https://gmbmirror.com/api/google/callback`**. Connecting Google working does **not**
+mean Google has verified the app or approved Business Profile API access; those are separate (see
+`docs/GOOGLE_OAUTH_VERIFICATION.md`).
+
+How it works: `/api/google/start` (signed-in owners only) creates a random `state` and a PKCE verifier, stores them
+in two httpOnly cookies for 10 minutes (`g_state`; `g_pkce`, signed, also naming the user, the location and the
+page to return to) and sends the owner to Google with scopes `business.manage`, `openid`, `email`, offline access.
+The callback refuses: a cancelled consent (`error=denied`), a missing or different state, a missing code, an expired
+or absent cookie, a cookie of another user or another location (`error=state`), a code Google rejects
+(`error=exchange`) and a grant without the Business Profile permission (`error=scope`, the partial grant is revoked).
+Otherwise it exchanges the code (with the PKCE verifier), encrypts the tokens (AES-256-GCM, `TOKEN_ENCRYPTION_KEY`),
+saves them for that user and location, emails a security notice, and returns to `/app/google-profile?connected=1`
+(or onboarding / settings, whichever started it). Signed-out visitors are sent to log in; nothing is stored.
+
+**One address only.** The sign-in cookies and the login session belong to the host that set them. Google returns to
+`gmbmirror.com`, so owners must use `gmbmirror.com` itself: started on `www.gmbmirror.com` or `gmbmirror.vercel.app`,
+the callback finds no cookies and refuses (`error=state`). In Vercel > Settings > Domains:
+1. `gmbmirror.com`: no redirect (it is the main address). It currently redirects to `www.gmbmirror.com`; remove that.
+2. `www.gmbmirror.com`: redirect to `gmbmirror.com` (308).
+3. `gmbmirror.vercel.app`: redirect to `gmbmirror.com` (308), if Vercel offers it for that domain; otherwise stop
+   sharing the vercel.app address.
+
+**Vercel environment variables (Production):**
+
+| Variable | Value |
+|---|---|
+| `NEXT_PUBLIC_APP_URL` | `https://gmbmirror.com` (no trailing slash; fixed at build time, so redeploy after changing) |
+| `GOOGLE_REDIRECT_URI` | `https://gmbmirror.com/api/google/callback` |
+| `GOOGLE_CLIENT_ID` | from the OAuth client (currently **not set** on Vercel, so Connect shows "coming soon") |
+| `GOOGLE_CLIENT_SECRET` | from the OAuth client (currently **not set**); mark Sensitive |
+| `TOKEN_ENCRYPTION_KEY` | already set; keep the same value (changing it makes stored tokens unreadable) |
+| `GBP_API_APPROVED` | `true` only after Google approves Business Profile API access; until then owners can connect but see samples |
+
+Startup logs warn (`[config] GOOGLE_REDIRECT_URI is not NEXT_PUBLIC_APP_URL + /api/google/callback`) while the two
+disagree. Local development keeps `NEXT_PUBLIC_APP_URL=http://localhost:3000` and
+`GOOGLE_REDIRECT_URI=http://localhost:3000/api/google/callback` (or leaves it empty).
+
+**Google Cloud Console** (the project that will be verified):
+- APIs & Services > Credentials > Create credentials > OAuth client ID, type **Web application**.
+  - Authorized redirect URIs: `https://gmbmirror.com/api/google/callback` and, for development,
+    `http://localhost:3000/api/google/callback`.
+  - Authorized JavaScript origins: not needed (the browser never calls Google directly); `https://gmbmirror.com`
+    may be added.
+- Google Auth Platform > Branding: app name GMBmirror; home page `https://gmbmirror.com/`; privacy policy
+  `https://gmbmirror.com/privacy`; terms `https://gmbmirror.com/terms`; authorized domain `gmbmirror.com`
+  (verify it in Search Console; `GOOGLE_SITE_VERIFICATION` adds the meta tag).
+- Data access (scopes): `.../auth/business.manage` (sensitive), `openid`, `.../auth/userinfo.email`. Nothing else.
+- Audience: External. In "Testing", only listed test users can connect (and their refresh tokens expire after 7
+  days); "In production" without verification shows Google's unverified-app warning.
+- Enable the Business Profile APIs (My Business Account Management, Business Information, the reviews/posts API
+  v4 and Business Profile Performance) and request Business Profile API access from Google.
+
+**Supabase** > Authentication > URL Configuration: Site URL `https://gmbmirror.com`; add
+`https://gmbmirror.com/auth/confirm` to Redirect URLs (sign-up and password-reset links use `NEXT_PUBLIC_APP_URL`).

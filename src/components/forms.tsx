@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useActionState, useEffect, useRef, useState } from "react";
 import {
-  addGoogleLocationAction, contactAction, deleteAccountAction, emailReportAction, removeLocationAction, saveNotificationPrefsAction, requestPasswordResetAction, setNewPasswordAction, addInsightAction, chooseLocationAction, createReportAction, explainCompetitorsAction, explainInsightsAction, deleteInsightAction, editInsightAction, editPostAction, logInAction, postComposerAction, refreshFromGoogleAction, refreshInsightsAction,
+  addGoogleLocationAction, contactAction, resendConfirmationAction, deleteAccountAction, emailReportAction, removeLocationAction, saveNotificationPrefsAction, requestPasswordResetAction, setNewPasswordAction, addInsightAction, chooseLocationAction, createReportAction, explainCompetitorsAction, explainInsightsAction, deleteInsightAction, editInsightAction, editPostAction, logInAction, postComposerAction, refreshFromGoogleAction, refreshInsightsAction,
   replyAction, runVisibilityAction, saveAiPreferencesAction, saveAutomationAction, saveBusinessAction, saveGuideNotesAction, signUpAction, type FormState,
 } from "@/app/actions";
 import { Field, Msg, SubmitButton } from "./ui";
@@ -16,6 +16,7 @@ const init: FormState = {};
 export function AuthForm({ mode, next }: { mode: "login" | "signup"; next?: string }) {
   const [s, action] = useActionState(mode === "login" ? logInAction : signUpAction, init);
   return (
+    <>
     <form action={action} className="flex flex-col gap-4" key={JSON.stringify(s.values ?? {})}>
       {next ? <input type="hidden" name="next" value={next} /> : null}
       <Field label="Email" name="email" type="email" autoComplete="email" required defaultValue={s.values?.email} error={s.fieldErrors?.email} />
@@ -30,6 +31,21 @@ export function AuthForm({ mode, next }: { mode: "login" | "signup"; next?: stri
       <p className="caption-2 text-muted">
         {mode === "login" ? <>New here? <Link href="/signup" className="underline">Create an account</Link></> : <>Already have an account? <Link href="/login" className="underline">Log in</Link></>}
       </p>
+    </form>
+    {s.resendFor ? <ResendConfirmation email={s.resendFor} key={s.resendFor} /> : null}
+    </>
+  );
+}
+
+/** "Send the link again", under the sign-up result or an unconfirmed login. Its own form (forms cannot nest). */
+function ResendConfirmation({ email }: { email: string }) {
+  const [s, action] = useActionState(resendConfirmationAction, init);
+  return (
+    <form action={action} className="mt-4 flex flex-col items-start gap-2 border-t border-line pt-4" data-testid="resend-confirmation">
+      <input type="hidden" name="email" value={email} />
+      <p className="caption-2 text-muted">No email after a few minutes? Check spam, then:</p>
+      <SubmitButton pending="Sending" variant="secondary">Send the confirmation link again</SubmitButton>
+      <Msg state={s} />
     </form>
   );
 }

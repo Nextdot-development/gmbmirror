@@ -4,7 +4,7 @@ import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
-import { deleteLogin, getUser, logIn, logOut, requestPasswordReset, requireUser, requireVerifiedUser, setNewPassword, signUp } from "@/lib/session";
+import { deleteLogin, getUser, logIn, logOut, requestPasswordReset, requireUser, requireVerifiedUser, resendConfirmation, setNewPassword, signUp } from "@/lib/session";
 import { notifyAccountDeleted, notifyReport, notifySecurity, savePrefs, sendSupportMessage } from "@/lib/notify";
 import { emailConfigured } from "@/lib/email";
 import { requireScope } from "@/lib/ctx";
@@ -42,6 +42,8 @@ export type FormState = {
   status?: string;
   /** Alternative drafts to choose from (post writer). */
   variants?: string[];
+  /** Sign up / log in: the address whose confirmation link can be sent again. */
+  resendFor?: string;
 };
 
 /**
@@ -117,7 +119,9 @@ export async function signUpAction(_: FormState, fd: FormData): Promise<FormStat
   if (!rl.ok) return { error: waitMessage("sign up attempts", rl.retryAfterSec), values: vals(fd) };
   const r = await signUp(parsed.data.email, parsed.data.password);
   if (r.error) return { error: r.error, values: vals(fd) };
-  if (r.needsConfirm) return { ok: "Account created. Check your email and click the link to confirm, then log in." };
+  // Only Supabase's own answer is reported: it sent the email (needsConfirm) or the address already has an account.
+  if (r.existing) return { error: "An account with this email may already exist. Log in, or reset your password if you forgot it.", values: vals(fd) };
+  if (r.needsConfirm) return { ok: `We sent a confirmation link to ${parsed.data.email}. Open it to finish creating your account (check spam too). The link works once.`, resendFor: parsed.data.email };
   await rememberDevice(parsed.data.email);
   redirect("/app/onboarding");
 }
@@ -147,12 +151,26 @@ export async function logInAction(_: FormState, fd: FormData): Promise<FormState
   if (r.error) {
     await takeShared(clientKey, LIMITS.loginFailPerClient);
     await takeShared(accountKey, LIMITS.loginFailPerAccount);
-    return { error: r.error, values: vals(fd) };
+    return { error: r.error, values: vals(fd), ...(r.unconfirmed ? { resendFor: email } : {}) };
   }
   await clearShared(clientKey);
   await rememberDevice(email);
   // Back to the dashboard page that asked for a login (checked again here: the form field can be edited).
   redirect(dashboardReturn(String(fd.get("next") ?? "")) ?? "/app");
+}
+
+/** Sends the sign-up confirmation link again (from the sign-up result or an unconfirmed login). */
+export async function resendConfirmationAction(_: FormState, fd: FormData): Promise<FormState> {
+  const parsed = z.object({ email: emailSchema }).safeParse({ email: fd.get("email") });
+  if (!parsed.success) return { error: "Enter your email address." };
+  const email = parsed.data.email;
+  const byIp = await takeShared(`confirm:ip:${await clientIp()}`, LIMITS.confirmPerIp);
+  if (!byIp.ok) return { error: waitMessage("link requests", byIp.retryAfterSec), resendFor: email };
+  const byEmail = await takeShared(`confirm:email:${email}`, LIMITS.confirmPerEmail);
+  if (!byEmail.ok) return { error: waitMessage("link requests", byEmail.retryAfterSec), resendFor: email };
+  const r = await resendConfirmation(email);
+  if (r.error) return { error: r.error, resendFor: email };
+  return { ok: `If ${email} is waiting for confirmation, a new link is on its way. Older links stop working.`, resendFor: email };
 }
 
 /** "Forgot password": sends a reset link if the account exists; the answer never says whether it does. */
